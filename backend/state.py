@@ -28,3 +28,5 @@ class AgentState(TypedDict, total=False):
     selected_hotel: Optional[Dict[str, Any]]
     user_interests: Optional[List[str]]
     add_ons: Dict[str, Any]
+    session_id: str  
+    final_itinerary: Optional[Dict[str, Any]]

@@ -275,6 +275,144 @@
 
 # backend/graph.py
 
+# import json
+# import re
+# from typing import Literal, Optional, Dict, Any, List
+# from datetime import datetime, timedelta
+
+# from langgraph.graph import StateGraph, END
+# from langchain_core.messages import SystemMessage, AIMessage, HumanMessage
+# from langchain_core.runnables import RunnableConfig 
+# from sqlalchemy.future import select
+
+# # --- Project Imports ---
+# from llms import gpt_llm, gemini_llm
+# from state import AgentState
+# from tools import search_flights, search_trains, search_hotels
+# from prompts import MASTER_SYSTEM_PROMPT
+# from database import SessionLocal
+# from models import Trip
+
+# # =========================================================
+# # 🔹 HELPER FUNCTIONS
+# # =========================================================
+
+# def safe_dict(val: Any) -> Dict[str, Any]:
+#     if isinstance(val, dict): return val
+#     return {}
+
+# def get_trip(details: Any, key: str) -> Optional[str]:
+#     d = safe_dict(details)
+#     return d.get(key)
+
+# def trim_messages(messages: List[Any], keep: int = 2) -> List[Any]:
+#     if not messages: return []
+#     return messages[-keep:]
+
+# def get_last_user_message(messages: List[Any]) -> str:
+#     if not messages: return ""
+#     last_msg = messages[-1]
+#     if hasattr(last_msg, "content"): return str(last_msg.content)
+#     if isinstance(last_msg, dict): return str(last_msg.get("content", ""))
+#     return str(last_msg)
+
+# def extract_json_from_text(text: str) -> Dict[str, Any]:
+#     try:
+#         return json.loads(text)
+#     except:
+#         match = re.search(r"\{.*\}", text, re.DOTALL)
+#         if match:
+#             try: return json.loads(match.group(0))
+#             except: pass
+#     return {}
+
+# # =========================================================
+# # 1️⃣ EXTRACTION NODE (Guard Clause Logic)
+# # =========================================================
+# def extraction_node(state: AgentState):
+#     """
+#     Extracts details ONLY if they are missing.
+#     """
+#     existing_details = safe_dict(state.get("trip_details"))
+#     messages = state.get("messages", [])
+#     last_message_content = get_last_user_message(messages).lower() # Convert to lower for easier matching
+
+#     # 🚨 FIX 1: Stronger Guard Clause for Selection
+#     if any(k in last_message_content for k in ["select", "choose", "book", "lock", "option selected", "confirm", "reserve"]):
+#         print("⏭️ User is selecting an option. Skipping extraction.")
+#         return {} 
+
+#     if (existing_details.get("source") and 
+#         existing_details.get("destination") and 
+#         existing_details.get("start_date")):
+#         return {} 
+
+#     if not last_message_content.strip(): return {}
+
+#     today = datetime.now().strftime("%Y-%m-%d")
+#     prompt = f"""
+#         You are a DATA PARSER. TODAY: {today}
+#         Extract missing travel details from: "{last_message_content}"
+#         Current Data: {existing_details}
+#         RETURN JSON ONLY: {{ "source": "...", "destination": "...", "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD" }}
+#     """
+    
+#     try:
+#         response = gpt_llm.invoke([HumanMessage(content=prompt)])
+#         clean_json = str(response.content).replace("```json", "").replace("```", "").strip()
+#         new_data = extract_json_from_text(clean_json)
+        
+#         valid_new_data = {k: v for k, v in new_data.items() if v and str(v).strip()}
+        
+#         if valid_new_data:
+#             print(f"✅ Extracted: {valid_new_data}")
+#             return {"trip_details": {**existing_details, **valid_new_data}}
+            
+#     except Exception as e:
+#         print(f"⚠️ Extraction Error: {e}")
+        
+#     return {}
+
+# # =========================================================
+# # 2️⃣ PLANNER NODE (The Decision Maker)
+# # =========================================================
+# def planner_node(state: AgentState):
+#     # Normalize phase to ensure string matching works
+#     phase = str(state.get("current_phase", "gathering_info")).strip()
+    
+#     last_msg = get_last_user_message(state.get("messages", [])).lower()
+#     details = safe_dict(state.get("trip_details"))
+    
+#     print(f"🧠 PLANNER: Phase='{phase}' | User='{last_msg}'")
+
+#     # 🚨 FIX 3: AGGRESSIVE SELECTION DETECTION
+#     is_selection = any(k in last_msg for k in ["select", "book", "lock", "choose", "reserve", "confirm"])
+
+#     # --- TRANSITION LOGIC ---
+
+#     # 1. From Options -> Confirm
+#     if phase == "presenting_options" and is_selection:
+#         print("✅ TRANSITION: Options -> Confirm Transport")
+#         return {"current_phase": "confirm_transport"}
+
+#     # 2. From Confirm -> Hotels
+#     if phase == "confirm_transport":
+#         print("✅ TRANSITION: Confirm -> Search Hotels")
+#         return {"current_phase": "search_hotels"}
+
+#     # 3. From Hotels -> Itinerary
+#     if phase == "presenting_hotels" and is_selection:
+#         print("✅ TRANSITION: Hotels -> Itinerary")
+#         return {"current_phase": "itinerary"}
+
+#     # 4. Auto-Start (Gathering -> Search)
+#     if phase == "gathering_info":
+#         if (details.get("source") and details.get("destination") and details.get("start_date")):
+#             return {"current_phase": "ready_to_search"}
+
+#     # Default: No change
+#     return {"current_phase": phase}
+
 import json
 import re
 from typing import Literal, Optional, Dict, Any, List
@@ -292,9 +430,11 @@ from tools import search_flights, search_trains, search_hotels
 from prompts import MASTER_SYSTEM_PROMPT
 from database import SessionLocal
 from models import Trip
+from schemas import UserIntent  
+from sqlalchemy.future import select
 
 # =========================================================
-# 🔹 HELPER FUNCTIONS
+# 🔹 HELPER FUNCTIONS (Preserved)
 # =========================================================
 
 def safe_dict(val: Any) -> Dict[str, Any]:
@@ -304,10 +444,6 @@ def safe_dict(val: Any) -> Dict[str, Any]:
 def get_trip(details: Any, key: str) -> Optional[str]:
     d = safe_dict(details)
     return d.get(key)
-
-def trim_messages(messages: List[Any], keep: int = 2) -> List[Any]:
-    if not messages: return []
-    return messages[-keep:]
 
 def get_last_user_message(messages: List[Any]) -> str:
     if not messages: return ""
@@ -327,33 +463,32 @@ def extract_json_from_text(text: str) -> Dict[str, Any]:
     return {}
 
 # =========================================================
-# 1️⃣ EXTRACTION NODE (Guard Clause Logic)
+# 1️⃣ EXTRACTION NODE (Updated for Modifications)
 # =========================================================
 def extraction_node(state: AgentState):
     """
-    Extracts details ONLY if they are missing.
+    Extracts details or updates existing ones.
     """
     existing_details = safe_dict(state.get("trip_details"))
     messages = state.get("messages", [])
-    last_message_content = get_last_user_message(messages).lower() # Convert to lower for easier matching
+    last_message_content = get_last_user_message(messages)
 
-    # 🚨 FIX 1: Stronger Guard Clause for Selection
-    if any(k in last_message_content for k in ["select", "choose", "book", "lock", "option selected", "confirm", "reserve"]):
-        print("⏭️ User is selecting an option. Skipping extraction.")
-        return {} 
-
-    if (existing_details.get("source") and 
-        existing_details.get("destination") and 
-        existing_details.get("start_date")):
-        return {} 
-
+    # 🚨 CRITICAL FIX: Removed the "If details exist, skip" check.
+    # We MUST run extraction every time to catch "Change date to tomorrow".
+    
     if not last_message_content.strip(): return {}
 
     today = datetime.now().strftime("%Y-%m-%d")
     prompt = f"""
         You are a DATA PARSER. TODAY: {today}
-        Extract missing travel details from: "{last_message_content}"
+        User Input: "{last_message_content}"
         Current Data: {existing_details}
+        
+        Task:
+        1. Extract travel details (Source, Destination, Start Date, End Date).
+        2. If the user is CHANGING a value (e.g. "Actually go to Paris"), OVERWRITE the old value.
+        3. Keep existing values if not mentioned.
+        
         RETURN JSON ONLY: {{ "source": "...", "destination": "...", "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD" }}
     """
     
@@ -362,10 +497,11 @@ def extraction_node(state: AgentState):
         clean_json = str(response.content).replace("```json", "").replace("```", "").strip()
         new_data = extract_json_from_text(clean_json)
         
+        # Merge new data into existing details
         valid_new_data = {k: v for k, v in new_data.items() if v and str(v).strip()}
         
         if valid_new_data:
-            print(f"✅ Extracted: {valid_new_data}")
+            print(f"✅ Extracted/Updated: {valid_new_data}")
             return {"trip_details": {**existing_details, **valid_new_data}}
             
     except Exception as e:
@@ -374,45 +510,81 @@ def extraction_node(state: AgentState):
     return {}
 
 # =========================================================
-# 2️⃣ PLANNER NODE (The Decision Maker)
+# 2️⃣ PLANNER NODE (The New Semantic Router)
 # =========================================================
+
+# Initialize the router model once
+router_llm = gemini_llm.with_structured_output(UserIntent)
+
 def planner_node(state: AgentState):
-    # Normalize phase to ensure string matching works
-    phase = str(state.get("current_phase", "gathering_info")).strip()
-    
-    last_msg = get_last_user_message(state.get("messages", [])).lower()
+    """
+    Decides the next phase based on SEMANTIC understanding of the user's input.
+    """
+    phase = state.get("current_phase", "gathering_info")
+    messages = state.get("messages", [])
+    last_msg = get_last_user_message(messages)
     details = safe_dict(state.get("trip_details"))
     
-    print(f"🧠 PLANNER: Phase='{phase}' | User='{last_msg}'")
+    print(f"🧠 PLANNER (INTENT): Phase='{phase}' | User='{last_msg}'")
 
-    # 🚨 FIX 3: AGGRESSIVE SELECTION DETECTION
-    is_selection = any(k in last_msg for k in ["select", "book", "lock", "choose", "reserve", "confirm"])
+    # --- 1. CLASSIFY INTENT ---
+    system_instruction = f"""
+    You are a Router for a Travel Agent.
+    Current Conversation Phase: {phase}
+    
+    Definitions:
+    - select_option: User is picking a specific flight, train, or hotel (e.g., "I'll take the first one", "Book Indigo").
+    - modify_search: User changes dates, location, or budget (e.g., "Actually, look for tomorrow", "Change destination").
+    - confirm_proceed: User agrees to move to the next step (e.g., "Yes, find hotels", "Proceed").
+    - ask_question: User asks about baggage, weather, or details of the current options.
+    """
+    
+    try:
+        intent_result = router_llm.invoke([
+            SystemMessage(content=system_instruction),
+            HumanMessage(content=last_msg)
+        ])
+        intent = intent_result.category
+        print(f"🧭 ROUTER DECISION: {intent} (Reason: {intent_result.reasoning})")
+        
+    except Exception as e:
+        print(f"⚠️ Router Failed: {e}. Falling back to default.")
+        intent = "general_chitchat"
 
-    # --- TRANSITION LOGIC ---
+    # --- 2. STATE MACHINE TRANSITIONS ---
 
-    # 1. From Options -> Confirm
-    if phase == "presenting_options" and is_selection:
-        print("✅ TRANSITION: Options -> Confirm Transport")
-        return {"current_phase": "confirm_transport"}
+    # A. HANDLE MODIFICATIONS (Global Rule)
+    if intent == "modify_search":
+        print("🔄 User wants to modify. Resetting to 'ready_to_search'.")
+        # Returning "ready_to_search" will trigger the Tools Node next
+        return {"current_phase": "ready_to_search"}
 
-    # 2. From Confirm -> Hotels
+    # B. FROM OPTIONS -> CONFIRM
+    if phase == "presenting_options":
+        if intent == "select_option":
+            return {"current_phase": "confirm_transport"}
+        if intent == "ask_question":
+            return {"current_phase": "presenting_options"}
+
+    # C. FROM CONFIRM -> HOTELS
     if phase == "confirm_transport":
-        print("✅ TRANSITION: Confirm -> Search Hotels")
-        return {"current_phase": "search_hotels"}
+        if intent == "confirm_proceed" or "hotels" in last_msg.lower():
+            return {"current_phase": "search_hotels"}
 
-    # 3. From Hotels -> Itinerary
-    if phase == "presenting_hotels" and is_selection:
-        print("✅ TRANSITION: Hotels -> Itinerary")
-        return {"current_phase": "itinerary"}
+    # D. FROM HOTELS -> ITINERARY
+    if phase == "presenting_hotels":
+        if intent == "select_option":
+            return {"current_phase": "itinerary"}
 
-    # 4. Auto-Start (Gathering -> Search)
+    # E. AUTO-START (Gathering -> Search)
     if phase == "gathering_info":
         if (details.get("source") and details.get("destination") and details.get("start_date")):
-            return {"current_phase": "ready_to_search"}
+            # Only switch if user isn't asking a clarifying question
+            if intent != "ask_question":
+                return {"current_phase": "ready_to_search"}
 
-    # Default: No change
+    # Default: Maintain current phase
     return {"current_phase": phase}
-
 
 # =========================================================
 # 3️⃣ TOOL NODE (Search Execution)
@@ -488,10 +660,12 @@ def response_node(state: AgentState):
         instructions += f"\n\n🚨 RAW FLIGHT/TRAIN DATA:\n{search_data}"
         instructions += f"""
         \n\n⚠️ **STRICT OUTPUT RULES:**
-        1. **JSON ONLY**: You MUST return **ONLY VALID JSON**. No Markdown tables.
-        2. **GREETING**: The 'greeting' field MUST be a short, engaging welcome message that **appreciates the specific beauty or vibe of {dest}**.
-           - Example: "The misty hills of Darjeeling are calling! 🏔️ I've found some excellent travel options for your journey on {user_trip_date}."
-           - Make it sound like a travel consultant, not a robot.
+        1. **JSON ONLY**: Return ONLY VALID JSON.
+        2. **GREETING (MANDATORY VIBE CHECK)**: 
+           - DO NOT say "Hello" or "Here are options".
+           - You MUST start with an **evocative, high-energy hook** about {dest}.
+           - Mention a specific landmark or feeling (e.g., "The aroma of tea leaves in Darjeeling is waiting for you! 🍃").
+           - Be enthusiastic!
         3. **STRUCTURE**: {{ "greeting": "...", "flights_section": {{...}}, "trains_section": {{...}} }}
         """
         
@@ -551,8 +725,61 @@ def response_node(state: AgentState):
 # =========================================================
 # 6️⃣ SAVE NODE
 # =========================================================
-async def save_itinerary_node(state: AgentState, config: RunnableConfig):
-    return {}
+async def save_itinerary_node(state: AgentState):
+    """
+    Saves the finalized trip details to the SQLite/Postgres database.
+    Uses a fresh, short-lived session to avoid serialization errors.
+    """
+    print("💾 SAVE NODE: Persisting trip data...")
+    
+    session_id = state.get("session_id")
+    details = safe_dict(state.get("trip_details"))
+    
+    if not session_id:
+        print("⚠️ No session_id found. Skipping save.")
+        return {}
+
+    # Prepare data for saving
+    source = get_trip(details, "source")
+    destination = get_trip(details, "destination")
+    start_date = get_trip(details, "start_date")
+    
+    # Use the context manager to open/close the connection automatically
+    async with SessionLocal() as session:
+        try:
+            # 1. Check if Trip exists
+            result = await session.execute(
+                select(Trip).where(Trip.session_id == session_id)
+            )
+            existing_trip = result.scalars().first()
+
+            if existing_trip:
+                # Update existing
+                existing_trip.source = source
+                existing_trip.destination = destination
+                existing_trip.start_date = start_date
+                # If you have final_itinerary in state, save it too
+                if state.get("final_itinerary"):
+                    existing_trip.final_itinerary = state["final_itinerary"]
+                print(f"✅ Updated Trip: {session_id}")
+            else:
+                # Create new
+                new_trip = Trip(
+                    session_id=session_id,
+                    source=source,
+                    destination=destination,
+                    start_date=start_date
+                )
+                session.add(new_trip)
+                print(f"✅ Created New Trip: {session_id}")
+
+            await session.commit()
+            
+        except Exception as e:
+            print(f"❌ Database Save Error: {e}")
+            await session.rollback()
+
+    return {"messages": [AIMessage(content="I've saved your itinerary details.")]}
 
 # =========================================================
 # 7️⃣ ROUTING

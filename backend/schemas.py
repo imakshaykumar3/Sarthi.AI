@@ -1,4 +1,5 @@
-from pydantic import BaseModel
+from typing import Literal
+from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 
 # User Input Schema
@@ -7,7 +8,6 @@ class UserMessage(BaseModel):
     message: str
     trip_data: Optional[Dict[str, Any]] = None 
 
-# Standardized "Real Data" Structures (Kept same as before)
 class TransportOption(BaseModel):
     type: str 
     provider_name: str 
@@ -38,3 +38,14 @@ class FinalBill(BaseModel):
     rental_cost: float
     total_cost: float
     breakdown: Dict[str, float]
+
+class UserIntent(BaseModel):
+    category: Literal[
+        "select_option",      
+        "modify_search",      
+        "ask_question",      
+        "general_chitchat",   
+        "confirm_proceed"     
+    ] = Field(description="The category of the user's latest message.")
+    
+    reasoning: str = Field(description="Brief reason why this category was chosen.")
