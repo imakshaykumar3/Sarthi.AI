@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-slate-50 text-slate-900;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* Custom Scrollbar for Chat */
+.scrollbar-hide::-webkit-scrollbar {
+    display: none;
+}
+.scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+/* Smooth input focus transition */
+.input-field {
+  @apply w-full bg-transparent outline-none text-slate-700 font-medium placeholder-slate-400;
+}
+
+/* Label styling */
+.input-label {
+  @apply text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block;
+}
+
+/* Glassmorphism utility */
+.glass {
+  @apply bg-white/90 backdrop-blur-lg border border-white/20 shadow-xl;
+}
