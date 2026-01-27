@@ -299,7 +299,6 @@
 import React from "react";
 import { Train, Check } from "lucide-react";
 
-// ✅ HELPER: Format Date (e.g., "30 JAN")
 const formatDate = (dateStr, addedDays = 0) => {
   if (!dateStr) return "";
   try {

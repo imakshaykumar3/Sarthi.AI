@@ -252,29 +252,20 @@
 import React from "react";
 import { Plane, Clock, Check } from "lucide-react";
 
-// ✅ OPTIMIZATION: Move helpers outside to prevent re-creation on render.
-// This ensures consistent formatting logic matching the "Hybrid Approach".
-
 const extractTime = (val) => {
   if (!val) return "--:--";
-  // Robust regex: Handles "2023-10-10T14:30:00" (ISO), "14:30", or "2:30 PM"
   const match = String(val).match(/(\d{1,2}:\d{2})/);
   return match ? match[0] : "--:--";
 };
 
 const formatPrice = (price) => {
   if (!price || price === "N/A") return "N/A";
-  // Sanitizes inputs like "INR 4,500.00" or raw numbers
   let cleanString = String(price).replace(/[^0-9.]/g, "");
   const num = parseInt(cleanString, 10);
   return isNaN(num) ? "N/A" : `₹${num.toLocaleString("en-IN")}`;
 };
 
 const FlightCard = ({ flight, onSelect, isSelected }) => {
-  
-  // 🚨 STATE DISCONNECT FIX: 
-  // Ensure we have a valid ID. The parent App.jsx relies on 'flight.number' 
-  // to build the command string for the AI.
   const flightNum = flight.number || flight.flight_number || "Unknown";
   
   const depTime = extractTime(flight.dep || flight.departure);
@@ -284,7 +275,6 @@ const FlightCard = ({ flight, onSelect, isSelected }) => {
   const origin = flight.from_city || flight.origin || "Origin"; 
   const destination = flight.to_city || flight.destination || "Dest";
   
-  // Logic to determine if it's a "Best Value" or "Cheapest" for badges
   const isCheapest = flight.badge?.toLowerCase().includes('cheapest');
 
   return (

@@ -1,420 +1,7 @@
-# # backend/graph.py
-# import json
-# import re
-# from typing import Literal, Optional, Dict, Any, List
-# from datetime import datetime, timedelta
-
-# from langgraph.graph import StateGraph, END
-# from langchain_core.messages import SystemMessage, AIMessage, HumanMessage
-# from langchain_core.runnables import RunnableConfig 
-# from sqlalchemy.future import select
-
-# # --- Project Imports ---
-# from llms import gpt_llm, gemini_llm
-# from state import AgentState
-# from tools import search_flights, search_trains, search_hotels
-# from prompts import MASTER_SYSTEM_PROMPT
-# from database import SessionLocal
-# from models import Trip
-
-# # =========================================================
-# # 🔹 HELPER FUNCTIONS (Keep as is)
-# # =========================================================
-# def safe_dict(val: Any) -> Dict[str, Any]:
-#     if isinstance(val, dict): return val
-#     return {}
-
-# def get_trip(details: Any, key: str) -> Optional[str]:
-#     d = safe_dict(details)
-#     return d.get(key)
-
-# def trim_messages(messages: List[Any], keep: int = 2) -> List[Any]:
-#     if not messages: return []
-#     return messages[-keep:]
-
-# def get_last_user_message(messages: List[Any]) -> str:
-#     if not messages: return ""
-#     last_msg = messages[-1]
-#     if hasattr(last_msg, "content"): return str(last_msg.content)
-#     if isinstance(last_msg, dict): return str(last_msg.get("content", ""))
-#     return str(last_msg)
-
-# def extract_json_from_text(text: str) -> Dict[str, Any]:
-#     try:
-#         return json.loads(text)
-#     except:
-#         match = re.search(r"\{.*\}", text, re.DOTALL)
-#         if match:
-#             try: return json.loads(match.group(0))
-#             except: pass
-#     return {}
-
-# # =========================================================
-# # 1️⃣ EXTRACTION NODE 
-# # =========================================================
-# def extraction_node(state: AgentState):
-#     existing_details = safe_dict(state.get("trip_details"))
-#     messages = state.get("messages", [])
-#     last_message_content = get_last_user_message(messages).lower()
-
-#     if any(k in last_message_content for k in ["select", "choose", "book", "lock", "option selected", "confirm"]):
-#         print("⏭️ User is selecting an option. Skipping extraction.")
-#         return {} 
-
-#     if (existing_details.get("source") and 
-#         existing_details.get("destination") and 
-#         existing_details.get("start_date")):
-#         return {} 
-
-#     if not last_message_content.strip(): return {}
-
-#     today = datetime.now().strftime("%Y-%m-%d")
-#     prompt = f"""
-#         You are a DATA PARSER. TODAY: {today}
-#         Extract missing travel details from: "{last_message_content}"
-#         Current Data: {existing_details}
-#         RETURN JSON ONLY: {{ "source": "...", "destination": "...", "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD" }}
-#     """
-#     try:
-#         response = gpt_llm.invoke([HumanMessage(content=prompt)])
-#         clean_json = str(response.content).replace("```json", "").replace("```", "").strip()
-#         new_data = extract_json_from_text(clean_json)
-#         valid_new_data = {k: v for k, v in new_data.items() if v and str(v).strip()}
-#         if valid_new_data:
-#             print(f"✅ Extracted: {valid_new_data}")
-#             return {"trip_details": {**existing_details, **valid_new_data}}
-#     except Exception as e:
-#         print(f"⚠️ Extraction Error: {e}")
-#     return {}
-
-# # =========================================================
-# # 2️⃣ PLANNER NODE 
-# # =========================================================
-# def planner_node(state: AgentState):
-#     phase = state.get("current_phase", "gathering_info")
-#     last_msg = get_last_user_message(state.get("messages", [])).lower()
-#     details = safe_dict(state.get("trip_details"))
-    
-#     print(f"🧠 PLANNER: Current Phase '{phase}' | User said: '{last_msg}'")
-
-#     is_selection = any(k in last_msg for k in ["select", "book", "lock", "choose", "reserve", "confirm"])
-
-#     if phase == "presenting_options" and is_selection:
-#         print("✅ TRANSITION: Options -> Confirm Transport")
-#         return {"current_phase": "confirm_transport"}
-
-#     if phase == "confirm_transport":
-#         print("✅ TRANSITION: Confirm -> Search Hotels")
-#         return {"current_phase": "search_hotels"}
-
-#     if phase == "presenting_hotels" and is_selection:
-#         print("✅ TRANSITION: Hotels -> Itinerary")
-#         return {"current_phase": "itinerary"}
-
-#     if phase == "gathering_info":
-#         if (details.get("source") and details.get("destination") and details.get("start_date")):
-#             return {"current_phase": "ready_to_search"}
-
-#     return {"current_phase": phase}
-
-# # =========================================================
-# # 3️⃣ TOOL NODE
-# # =========================================================
-# def tool_execution_node(state: AgentState):
-#     phase = state.get("current_phase")
-#     details = safe_dict(state.get("trip_details"))
-
-#     if phase == "ready_to_search":
-#         src = get_trip(details, "source")
-#         dst = get_trip(details, "destination")
-#         date = get_trip(details, "start_date")
-#         print(f"🔎 Running Search Tools for {src} to {dst} on {date}...")
-#         try:
-#             flights = search_flights.invoke({"source": src, "destination": dst, "date": date})
-#         except Exception as e:
-#             flights = f"Flight Search Error: {e}"
-#         try:
-#             trains = search_trains.invoke({"source": src, "destination": dst, "date": date})
-#         except Exception as e:
-#             trains = f"Train Search Error: {e}"
-#         return {
-#             "search_results": f"FLIGHTS_DATA:\n{flights}\n\nTRAINS_DATA:\n{trains}",
-#             "current_phase": "presenting_options" 
-#         }
-
-#     if phase == "search_hotels":
-#         dst = get_trip(details, "destination")
-#         date = get_trip(details, "start_date")
-#         print(f"🏨 Searching Hotels in {dst}...")
-#         raw_hotels = search_hotels.invoke({"location": dst, "check_in": date})
-#         return {
-#             "search_results": raw_hotels,
-#             "current_phase": "presenting_hotels"
-#         }
-#     return {}
-
-# # =========================================================
-# # 4️⃣ CONFIRM NODE
-# # =========================================================
-# def confirm_transport_node(state: AgentState):
-#     return {"current_phase": "confirm_transport"}
-
-# # =========================================================
-# # 5️⃣ RESPONSE NODE (🚨 THE FIX)
-# # =========================================================
-# def response_node(state: AgentState):
-#     phase = state.get("current_phase", "gathering_info")
-#     search_data = state.get("search_results", "")
-#     last_msg = get_last_user_message(state.get("messages", [])).lower()
-    
-#     # 🚨 SELF-CORRECTION: If user says "select", FORCE confirmation logic
-#     if any(k in last_msg for k in ["select", "book", "lock", "choose", "confirm", "option selected"]):
-#         if phase == "presenting_options":
-#             phase = "confirm_transport" # Override phase locally
-    
-#     details = safe_dict(state.get("trip_details"))
-#     user_trip_date = get_trip(details, "start_date") or "Unknown Date"
-#     dest = get_trip(details, "destination") or "your destination"
-
-#     instructions = MASTER_SYSTEM_PROMPT.replace("__PHASE__", phase)
-#     instructions += f"\n\n🚨 CONTEXT: User is traveling to {dest} on {user_trip_date}."
-
-#     # --- LOGIC PER PHASE ---
-    
-#     if phase == "presenting_options":
-#         # Strict JSON for Options
-#         instructions += f"\n\n🚨 RAW FLIGHT/TRAIN DATA:\n{search_data}"
-#         instructions += f"""
-#         \n\n⚠️ **STRICT OUTPUT RULES:**
-#         1. **JSON ONLY**: You MUST return **ONLY VALID JSON**. No Markdown tables.
-#         2. **GREETING**: Include a warm greeting: "Welcome to {dest}! 🏔️ I've found options for {user_trip_date}."
-#         3. **STRUCTURE**: {{ "greeting": "...", "flights_section": {{...}}, "trains_section": {{...}} }}
-#         """
-        
-#     elif phase == "confirm_transport":
-#         instructions += f"\n\n🚨 RAW FLIGHT/TRAIN DATA (Reference this for confirmation details):\n{search_data}"
-        
-#         instructions += f"""
-#         \n\n🚨 **TASK: CONFIRM SELECTION WITH DETAILS**
-#         The user has selected a specific flight or train.
-#         1. **IDENTIFY**: Find the selected option in the raw data above based on the user's message.
-#         2. **CONFIRM**: Reply with a confirmation that includes:
-#            - The Transport Name (e.g. Indigo, Rajdhani Express)
-#            - Departure Time & Date
-#            - Arrival Time
-#            - "Excellent choice! Your [Transport] departs at [Time] on {user_trip_date}..."
-#         3. **NEXT STEP**: Ask if they want to proceed to finding hotels in {dest}.
-#         """
-
-#     elif phase == "presenting_hotels":
-#         instructions += f"\n\n🚨 RAW HOTEL DATA:\n{search_data}"
-
-#     try:
-#         user_msg_content = "Generate response."
-#         response = gemini_llm.invoke([
-#             SystemMessage(content=instructions),
-#             HumanMessage(content=user_msg_content)
-#         ])
-    
-#         content = response.content
-        
-#         if isinstance(content, list):
-#             extracted_text = []
-#             for item in content:
-#                 if isinstance(item, dict): extracted_text.append(item.get("text", ""))
-#                 elif hasattr(item, "text"): extracted_text.append(item.text)
-#                 elif isinstance(item, str): extracted_text.append(item)
-#             content = "".join(extracted_text)
-            
-#         content = str(content).strip()
-
-#         # Clean up Markdown if JSON
-#         if content.startswith("```json"):
-#             content = content.replace("```json", "").replace("```", "")
-        
-#         return {"messages": [AIMessage(content=content)]}
-        
-#     except Exception as e:
-#         print(f"❌ LLM GENERATION ERROR: {e}") 
-#         return {"messages": [AIMessage(content="I'm having trouble connecting to the AI brain right now. Please try again.")]}
-
-# # =========================================================
-# # 6️⃣ SAVE NODE
-# # =========================================================
-# async def save_itinerary_node(state: AgentState, config: RunnableConfig):
-#     return {}
-
-# # =========================================================
-# # 7️⃣ ROUTING
-# # =========================================================
-# workflow = StateGraph(AgentState)
-
-# workflow.add_node("extractor", extraction_node)
-# workflow.add_node("planner", planner_node)
-# workflow.add_node("tools", tool_execution_node)
-# workflow.add_node("confirm", confirm_transport_node)
-# workflow.add_node("responder", response_node)
-# workflow.add_node("saver", save_itinerary_node)
-
-# workflow.set_entry_point("extractor")
-
-# workflow.add_edge("extractor", "planner")
-# workflow.add_edge("tools", "responder")
-# workflow.add_edge("confirm", "responder")
-
-# def route_from_planner(state: AgentState):
-#     phase = state.get("current_phase", "gathering_info")
-#     if phase == "ready_to_search": return "tools"
-#     if phase == "search_hotels": return "tools" 
-#     if phase == "confirm_transport": return "confirm"
-#     return "responder"
-
-# workflow.add_conditional_edges("planner", route_from_planner)
-# workflow.add_edge("responder", END)
-# workflow.add_edge("saver", END)
-
-# backend/graph.py
-
-# import json
-# import re
-# from typing import Literal, Optional, Dict, Any, List
-# from datetime import datetime, timedelta
-
-# from langgraph.graph import StateGraph, END
-# from langchain_core.messages import SystemMessage, AIMessage, HumanMessage
-# from langchain_core.runnables import RunnableConfig 
-# from sqlalchemy.future import select
-
-# # --- Project Imports ---
-# from llms import gpt_llm, gemini_llm
-# from state import AgentState
-# from tools import search_flights, search_trains, search_hotels
-# from prompts import MASTER_SYSTEM_PROMPT
-# from database import SessionLocal
-# from models import Trip
-
-# # =========================================================
-# # 🔹 HELPER FUNCTIONS
-# # =========================================================
-
-# def safe_dict(val: Any) -> Dict[str, Any]:
-#     if isinstance(val, dict): return val
-#     return {}
-
-# def get_trip(details: Any, key: str) -> Optional[str]:
-#     d = safe_dict(details)
-#     return d.get(key)
-
-# def trim_messages(messages: List[Any], keep: int = 2) -> List[Any]:
-#     if not messages: return []
-#     return messages[-keep:]
-
-# def get_last_user_message(messages: List[Any]) -> str:
-#     if not messages: return ""
-#     last_msg = messages[-1]
-#     if hasattr(last_msg, "content"): return str(last_msg.content)
-#     if isinstance(last_msg, dict): return str(last_msg.get("content", ""))
-#     return str(last_msg)
-
-# def extract_json_from_text(text: str) -> Dict[str, Any]:
-#     try:
-#         return json.loads(text)
-#     except:
-#         match = re.search(r"\{.*\}", text, re.DOTALL)
-#         if match:
-#             try: return json.loads(match.group(0))
-#             except: pass
-#     return {}
-
-# # =========================================================
-# # 1️⃣ EXTRACTION NODE (Guard Clause Logic)
-# # =========================================================
-# def extraction_node(state: AgentState):
-#     """
-#     Extracts details ONLY if they are missing.
-#     """
-#     existing_details = safe_dict(state.get("trip_details"))
-#     messages = state.get("messages", [])
-#     last_message_content = get_last_user_message(messages).lower() # Convert to lower for easier matching
-
-#     # 🚨 FIX 1: Stronger Guard Clause for Selection
-#     if any(k in last_message_content for k in ["select", "choose", "book", "lock", "option selected", "confirm", "reserve"]):
-#         print("⏭️ User is selecting an option. Skipping extraction.")
-#         return {} 
-
-#     if (existing_details.get("source") and 
-#         existing_details.get("destination") and 
-#         existing_details.get("start_date")):
-#         return {} 
-
-#     if not last_message_content.strip(): return {}
-
-#     today = datetime.now().strftime("%Y-%m-%d")
-#     prompt = f"""
-#         You are a DATA PARSER. TODAY: {today}
-#         Extract missing travel details from: "{last_message_content}"
-#         Current Data: {existing_details}
-#         RETURN JSON ONLY: {{ "source": "...", "destination": "...", "start_date": "YYYY-MM-DD", "end_date": "YYYY-MM-DD" }}
-#     """
-    
-#     try:
-#         response = gpt_llm.invoke([HumanMessage(content=prompt)])
-#         clean_json = str(response.content).replace("```json", "").replace("```", "").strip()
-#         new_data = extract_json_from_text(clean_json)
-        
-#         valid_new_data = {k: v for k, v in new_data.items() if v and str(v).strip()}
-        
-#         if valid_new_data:
-#             print(f"✅ Extracted: {valid_new_data}")
-#             return {"trip_details": {**existing_details, **valid_new_data}}
-            
-#     except Exception as e:
-#         print(f"⚠️ Extraction Error: {e}")
-        
-#     return {}
-
-# # =========================================================
-# # 2️⃣ PLANNER NODE (The Decision Maker)
-# # =========================================================
-# def planner_node(state: AgentState):
-#     # Normalize phase to ensure string matching works
-#     phase = str(state.get("current_phase", "gathering_info")).strip()
-    
-#     last_msg = get_last_user_message(state.get("messages", [])).lower()
-#     details = safe_dict(state.get("trip_details"))
-    
-#     print(f"🧠 PLANNER: Phase='{phase}' | User='{last_msg}'")
-
-#     # 🚨 FIX 3: AGGRESSIVE SELECTION DETECTION
-#     is_selection = any(k in last_msg for k in ["select", "book", "lock", "choose", "reserve", "confirm"])
-
-#     # --- TRANSITION LOGIC ---
-
-#     # 1. From Options -> Confirm
-#     if phase == "presenting_options" and is_selection:
-#         print("✅ TRANSITION: Options -> Confirm Transport")
-#         return {"current_phase": "confirm_transport"}
-
-#     # 2. From Confirm -> Hotels
-#     if phase == "confirm_transport":
-#         print("✅ TRANSITION: Confirm -> Search Hotels")
-#         return {"current_phase": "search_hotels"}
-
-#     # 3. From Hotels -> Itinerary
-#     if phase == "presenting_hotels" and is_selection:
-#         print("✅ TRANSITION: Hotels -> Itinerary")
-#         return {"current_phase": "itinerary"}
-
-#     # 4. Auto-Start (Gathering -> Search)
-#     if phase == "gathering_info":
-#         if (details.get("source") and details.get("destination") and details.get("start_date")):
-#             return {"current_phase": "ready_to_search"}
-
-#     # Default: No change
-#     return {"current_phase": phase}
-
+#graph.py
 import json
 import re
+import asyncio
 from typing import Literal, Optional, Dict, Any, List
 from datetime import datetime, timedelta
 
@@ -430,12 +17,17 @@ from tools import search_flights, search_trains, search_hotels
 from prompts import MASTER_SYSTEM_PROMPT
 from database import SessionLocal
 from models import Trip
-from schemas import UserIntent  
-from sqlalchemy.future import select
+from schemas import UserIntent
 
 # =========================================================
-# 🔹 HELPER FUNCTIONS (Preserved)
+# 🔹 HELPER FUNCTIONS
 # =========================================================
+
+def clean_content(content):
+    if isinstance(content, list):
+        # Join all text parts if it's a list
+        return " ".join([c.get("text", "") for c in content if "text" in c])
+    return str(content)
 
 def safe_dict(val: Any) -> Dict[str, Any]:
     if isinstance(val, dict): return val
@@ -463,19 +55,13 @@ def extract_json_from_text(text: str) -> Dict[str, Any]:
     return {}
 
 # =========================================================
-# 1️⃣ EXTRACTION NODE (Updated for Modifications)
+# 1️⃣ EXTRACTION NODE 
 # =========================================================
 def extraction_node(state: AgentState):
-    """
-    Extracts details or updates existing ones.
-    """
     existing_details = safe_dict(state.get("trip_details"))
     messages = state.get("messages", [])
     last_message_content = get_last_user_message(messages)
 
-    # 🚨 CRITICAL FIX: Removed the "If details exist, skip" check.
-    # We MUST run extraction every time to catch "Change date to tomorrow".
-    
     if not last_message_content.strip(): return {}
 
     today = datetime.now().strftime("%Y-%m-%d")
@@ -497,7 +83,6 @@ def extraction_node(state: AgentState):
         clean_json = str(response.content).replace("```json", "").replace("```", "").strip()
         new_data = extract_json_from_text(clean_json)
         
-        # Merge new data into existing details
         valid_new_data = {k: v for k, v in new_data.items() if v and str(v).strip()}
         
         if valid_new_data:
@@ -509,17 +94,67 @@ def extraction_node(state: AgentState):
         
     return {}
 
-# =========================================================
-# 2️⃣ PLANNER NODE (The New Semantic Router)
-# =========================================================
+# # =========================================================
+# # 2️⃣ PLANNER NODE (Semantic Router)
+# # =========================================================
+# router_llm = gpt_llm.with_structured_output(UserIntent)
 
-# Initialize the router model once
-router_llm = gemini_llm.with_structured_output(UserIntent)
+# def planner_node(state: AgentState):
+#     phase = state.get("current_phase", "gathering_info")
+#     messages = state.get("messages", [])
+#     last_msg = get_last_user_message(messages)
+#     details = safe_dict(state.get("trip_details"))
+    
+#     print(f"🧠 PLANNER (INTENT): Phase='{phase}' | User='{last_msg}'")
+
+#     system_instruction = f"""
+#     You are a Router for a Travel Agent.
+#     Current Conversation Phase: {phase}
+#     Definitions:
+#     - select_option: User is picking a specific flight, train, or hotel.
+#     - modify_search: User changes dates, location, or budget.
+#     - confirm_proceed: User agrees to move to the next step (e.g., "Yes, find hotels", "Proceed").
+#     - ask_question: User asks about baggage, weather, or details.
+#     """
+    
+#     try:
+#         intent_result = router_llm.invoke([
+#             SystemMessage(content=system_instruction),
+#             HumanMessage(content=last_msg)
+#         ])
+#         intent = intent_result.category
+#         print(f"🧭 ROUTER DECISION: {intent}")
+#     except Exception:
+#         intent = "general_chitchat"
+
+#     # --- TRANSITIONS ---
+#     if intent == "modify_search":
+#         return {"current_phase": "ready_to_search"}
+
+#     if phase == "presenting_options":
+#         if intent == "select_option": return {"current_phase": "confirm_transport"}
+#         if intent == "ask_question": return {"current_phase": "presenting_options"}
+
+#     if phase == "confirm_transport":
+#         if intent == "confirm_proceed" or "hotels" in last_msg.lower():
+#             return {"current_phase": "search_hotels"}
+
+#     if phase == "presenting_hotels":
+#         if intent == "select_option": return {"current_phase": "itinerary"}
+
+#     if phase == "gathering_info":
+#         if (details.get("source") and details.get("destination") and details.get("start_date")):
+#             if intent != "ask_question":
+#                 return {"current_phase": "ready_to_search"}
+
+#     return {"current_phase": phase}
+
+# =========================================================
+# 2️⃣ PLANNER NODE (Semantic Router)
+# =========================================================
+router_llm = gpt_llm.with_structured_output(UserIntent)
 
 def planner_node(state: AgentState):
-    """
-    Decides the next phase based on SEMANTIC understanding of the user's input.
-    """
     phase = state.get("current_phase", "gathering_info")
     messages = state.get("messages", [])
     last_msg = get_last_user_message(messages)
@@ -527,287 +162,218 @@ def planner_node(state: AgentState):
     
     print(f"🧠 PLANNER (INTENT): Phase='{phase}' | User='{last_msg}'")
 
-    # --- 1. CLASSIFY INTENT ---
     system_instruction = f"""
     You are a Router for a Travel Agent.
     Current Conversation Phase: {phase}
-    
     Definitions:
-    - select_option: User is picking a specific flight, train, or hotel (e.g., "I'll take the first one", "Book Indigo").
-    - modify_search: User changes dates, location, or budget (e.g., "Actually, look for tomorrow", "Change destination").
+    - select_option: User is picking a specific flight, train, or hotel.
+    - modify_search: User changes dates, location, or budget.
     - confirm_proceed: User agrees to move to the next step (e.g., "Yes, find hotels", "Proceed").
-    - ask_question: User asks about baggage, weather, or details of the current options.
+    - ask_question: User asks about baggage, weather, or details.
     """
     
     try:
-        intent_result = router_llm.invoke([
-            SystemMessage(content=system_instruction),
-            HumanMessage(content=last_msg)
-        ])
+        intent_result = router_llm.invoke(
+            [
+                SystemMessage(content=system_instruction),
+                HumanMessage(content=last_msg)
+            ],
+            config={"callbacks": []} 
+        )
         intent = intent_result.category
-        print(f"🧭 ROUTER DECISION: {intent} (Reason: {intent_result.reasoning})")
-        
+        print(f"🧭 ROUTER DECISION: {intent}")
     except Exception as e:
-        print(f"⚠️ Router Failed: {e}. Falling back to default.")
+        print(f"⚠️ Router Error: {e}")
         intent = "general_chitchat"
 
-    # --- 2. STATE MACHINE TRANSITIONS ---
-
-    # A. HANDLE MODIFICATIONS (Global Rule)
+    # --- TRANSITIONS ---
     if intent == "modify_search":
-        print("🔄 User wants to modify. Resetting to 'ready_to_search'.")
-        # Returning "ready_to_search" will trigger the Tools Node next
         return {"current_phase": "ready_to_search"}
 
-    # B. FROM OPTIONS -> CONFIRM
     if phase == "presenting_options":
-        if intent == "select_option":
-            return {"current_phase": "confirm_transport"}
-        if intent == "ask_question":
-            return {"current_phase": "presenting_options"}
+        if intent == "select_option": return {"current_phase": "confirm_transport"}
+        if intent == "ask_question": return {"current_phase": "presenting_options"}
 
-    # C. FROM CONFIRM -> HOTELS
     if phase == "confirm_transport":
         if intent == "confirm_proceed" or "hotels" in last_msg.lower():
             return {"current_phase": "search_hotels"}
 
-    # D. FROM HOTELS -> ITINERARY
     if phase == "presenting_hotels":
-        if intent == "select_option":
-            return {"current_phase": "itinerary"}
+        if intent == "select_option": return {"current_phase": "itinerary"}
 
-    # E. AUTO-START (Gathering -> Search)
     if phase == "gathering_info":
         if (details.get("source") and details.get("destination") and details.get("start_date")):
-            # Only switch if user isn't asking a clarifying question
             if intent != "ask_question":
                 return {"current_phase": "ready_to_search"}
 
-    # Default: Maintain current phase
     return {"current_phase": phase}
 
 # =========================================================
-# 3️⃣ TOOL NODE (Search Execution)
+# 3️⃣ STREAMING PIPELINE NODES (The New Architecture)
 # =========================================================
-def tool_execution_node(state: AgentState):
-    phase = state.get("current_phase")
+
+# A. GREETING NODE (Runs first, fast)
+# async def greeting_node(state: AgentState):
+#     details = safe_dict(state.get("trip_details"))
+#     dest = details.get("destination", "your destination")
+    
+#     prompt = f"""
+#     Write a short, high-energy, evocative welcome message about traveling to {dest}.
+#     Max 2 sentences. Use emojis. 
+#     Example: "The misty hills of Darjeeling are calling! 🏔️"
+#     """
+#     response = await gemini_llm.ainvoke(prompt)
+#     # Prefix "GREETING_Start:" tells the frontend to render this as the greeting bubble
+#     return {"messages": [AIMessage(content=f"GREETING_Start: {response.content}")]}
+async def greeting_node(state: AgentState):
     details = safe_dict(state.get("trip_details"))
+    dest = details.get("destination", "your destination")
+    
+    # prompt = f"""
+    # Write a short, high-energy, evocative welcome message about traveling to {dest}.
+    # Max 2 sentences. Use emojis. 
+    # Example: "The misty hills of Darjeeling are calling! 🏔️"
+    # """
 
-    # Only run tools if we are in a 'search' phase
-    if phase == "ready_to_search":
-        src = get_trip(details, "source")
-        dst = get_trip(details, "destination")
-        date = get_trip(details, "start_date")
+    prompt = f"""
+        Write a highly evocative, confidence-boosting welcome message about {dest}
+        that makes the reader feel proud and excited about choosing this destination.
+        Limit to 2–3 sentences, high energy, vivid imagery, and emojis.
+        """
+    response = await gemini_llm.ainvoke(prompt)
+    
+    clean_text = clean_content(response.content)
+    
+    return {"messages": [AIMessage(content=f"GREETING_Start: {clean_text}")]}
 
-        print(f"🔎 Running Search Tools for {src} to {dst} on {date}...")
-        try:
-            flights = search_flights.invoke({"source": src, "destination": dst, "date": date})
-        except Exception as e:
-            flights = f"Flight Search Error: {e}"
+# B. FLIGHTS NODE (Runs second)
+async def flight_search_node(state: AgentState):
+    details = safe_dict(state.get("trip_details"))
+    src = details.get("source")
+    dst = details.get("destination")
+    date = details.get("start_date")
+    
+    try:
+        # invoke tools (synchronous or async depending on implementation)
+        result = search_flights.invoke({"source": src, "destination": dst, "date": date})
+    except Exception as e:
+        result = json.dumps({"error": str(e)})
+        
+    return {"search_results": f"FLIGHTS_DONE: {result}"}
 
-        try:
-            trains = search_trains.invoke({"source": src, "destination": dst, "date": date})
-        except Exception as e:
-            trains = f"Train Search Error: {e}"
+# C. TRAINS NODE (Runs third)
+async def train_search_node(state: AgentState):
+    details = safe_dict(state.get("trip_details"))
+    src = details.get("source")
+    dst = details.get("destination")
+    date = details.get("start_date")
+    
+    try:
+        result = search_trains.invoke({"source": src, "destination": dst, "date": date})
+    except Exception as e:
+        result = json.dumps({"error": str(e)})
+        
+    # We append this to the existing search_results so the state holds BOTH
+    return {"search_results": f"TRAINS_DONE: {result}", "current_phase": "presenting_options"}
 
-        return {
-            "search_results": f"FLIGHTS_DATA:\n{flights}\n\nTRAINS_DATA:\n{trains}",
-            "current_phase": "presenting_options" # Force Move to Presentation
-        }
+# =========================================================
+# 4️⃣ STANDARD NODES (Hotels & Confirmation)
+# =========================================================
 
-    if phase == "search_hotels":
-        dst = get_trip(details, "destination")
-        date = get_trip(details, "start_date")
-        print(f"🏨 Searching Hotels in {dst}...")
+def hotel_search_node(state: AgentState):
+    details = safe_dict(state.get("trip_details"))
+    dst = get_trip(details, "destination")
+    date = get_trip(details, "start_date")
+    print(f"🏨 Searching Hotels in {dst}...")
+    try:
         raw_hotels = search_hotels.invoke({"location": dst, "check_in": date})
-        return {
-            "search_results": raw_hotels,
-            "current_phase": "presenting_hotels" # Force Move to Presentation
-        }
+    except Exception as e:
+        raw_hotels = "Error searching hotels."
+    return {"search_results": raw_hotels, "current_phase": "presenting_hotels"}
 
+def response_node(state: AgentState):
+    # This handles non-streaming responses (e.g. Confirmation, Hotels, Errors)
+    phase = state.get("current_phase")
+    search_data = state.get("search_results", "")
+    details = safe_dict(state.get("trip_details"))
+    dest = details.get("destination", "your destination")
+    
+    if phase == "confirm_transport":
+        msg = f"Excellent choice! I've noted your selection for {dest}. Shall we look for hotels now?"
+        return {"messages": [AIMessage(content=msg)]}
+    
+    if phase == "presenting_hotels":
+        # Format hotels nicely
+        prompt = f"Format these hotels into a Markdown table: {search_data}"
+        response = gemini_llm.invoke(prompt)
+        return {"messages": [response]}
+
+    return {"messages": [AIMessage(content="How can I help you further?")]}
+
+async def save_itinerary_node(state: AgentState):
+    # (Same as before - decoupled DB save)
+    session_id = state.get("session_id")
+    details = safe_dict(state.get("trip_details"))
+    if not session_id: return {}
+    
+    async with SessionLocal() as session:
+        try:
+            result = await session.execute(select(Trip).where(Trip.session_id == session_id))
+            existing = result.scalars().first()
+            if existing:
+                existing.source = details.get("source")
+                existing.destination = details.get("destination")
+            else:
+                new_trip = Trip(session_id=session_id, source=details.get("source"), destination=details.get("destination"))
+                session.add(new_trip)
+            await session.commit()
+        except Exception as e:
+            print(f"DB Error: {e}")
     return {}
 
 # =========================================================
-# 4️⃣ CONFIRM NODE
-# =========================================================
-def confirm_transport_node(state: AgentState):
-    # This node just acts as a passthrough or specific logic holder
-    return {"current_phase": "confirm_transport"}
-
-
-# =========================================================
-# 5️⃣ RESPONSE NODE (The Voice)
-# =========================================================
-def response_node(state: AgentState):
-    phase = state.get("current_phase", "gathering_info")
-    search_data = state.get("search_results", "")
-    last_msg = get_last_user_message(state.get("messages", [])).lower()
-    
-    if phase == "presenting_options" and any(k in last_msg for k in ["select", "book", "choose", "confirm"]):
-        print("⚠️ RESPONSE NODE: Forcing 'confirm_transport' logic override.")
-        phase = "confirm_transport"
-
-    details = safe_dict(state.get("trip_details"))
-    user_trip_date = get_trip(details, "start_date") or "Unknown Date"
-    dest = get_trip(details, "destination") or "your destination"
-
-    instructions = MASTER_SYSTEM_PROMPT.replace("__PHASE__", phase)
-    instructions += f"\n\n🚨 CONTEXT: User is traveling to {dest} on {user_trip_date}."
-
-    # --- LOGIC PER PHASE ---
-    if phase == "presenting_options":
-        # Strict JSON for Options
-        instructions += f"\n\n🚨 RAW FLIGHT/TRAIN DATA:\n{search_data}"
-        instructions += f"""
-        \n\n⚠️ **STRICT OUTPUT RULES:**
-        1. **JSON ONLY**: Return ONLY VALID JSON.
-        2. **GREETING (MANDATORY VIBE CHECK)**: 
-           - DO NOT say "Hello" or "Here are options".
-           - You MUST start with an **evocative, high-energy hook** about {dest}.
-           - Mention a specific landmark or feeling (e.g., "The aroma of tea leaves in Darjeeling is waiting for you! 🍃").
-           - Be enthusiastic!
-        3. **STRUCTURE**: {{ "greeting": "...", "flights_section": {{...}}, "trains_section": {{...}} }}
-        """
-        
-    elif phase == "confirm_transport":
-        # 🚨 CONFIRMATION LOGIC
-        instructions += f"\n\n🚨 RAW FLIGHT/TRAIN DATA (Reference this to find details):\n{search_data}"
-        instructions += f"""
-        \n\n🚨 **TASK: ACKNOWLEDGE SELECTION (NO BOOKING YET)**
-        The user has selected a specific flight or train (User said: "{last_msg}").
-        
-        1. **TONE**: You are a consultant, NOT a booking engine. 
-           - **DO NOT** say "I have confirmed your booking" or "Ticket reserved". Payment hasn't happened.
-           - **INSTEAD SAY**: "Excellent choice," "That is a great option," or "I've noted that down."
-
-        2. **DETAILS (MANDATORY FORMAT)**:
-           You MUST explicitly mention the dates in the Departure/Arrival lines.
-           - **Departure**: [Time] from [Station/Airport] on {user_trip_date}
-           - **Arrival**: [Time] at [Station/Airport] on [Calculate Date: If raw data says "Next Day" or "Day 2", add 1 day to {user_trip_date}]
-
-        3. **NEXT STEP**: Ask: "Shall I now proceed to find the best budget-friendly hotels in {dest}?"
-        4. **NO JSON**: Do NOT output JSON here. Just text.
-        """
-
-    elif phase == "presenting_hotels":
-        instructions += f"\n\n🚨 RAW HOTEL DATA:\n{search_data}"
-
-    try:
-        user_msg_content = "Generate response."
-        response = gemini_llm.invoke([
-            SystemMessage(content=instructions),
-            HumanMessage(content=user_msg_content)
-        ])
-    
-        content = response.content
-        
-        # Helper to join list responses
-        if isinstance(content, list):
-            extracted_text = []
-            for item in content:
-                if isinstance(item, dict): extracted_text.append(item.get("text", ""))
-                elif hasattr(item, "text"): extracted_text.append(item.text)
-                elif isinstance(item, str): extracted_text.append(item)
-            content = "".join(extracted_text)
-            
-        content = str(content).strip()
-
-        # Clean up Markdown if JSON
-        if content.startswith("```json"):
-            content = content.replace("```json", "").replace("```", "")
-        
-        return {"messages": [AIMessage(content=content)]}
-        
-    except Exception as e:
-        print(f"❌ LLM GENERATION ERROR: {e}") 
-        return {"messages": [AIMessage(content="I'm having trouble connecting to the AI brain right now. Please try again.")]}
-
-# =========================================================
-# 6️⃣ SAVE NODE
-# =========================================================
-async def save_itinerary_node(state: AgentState):
-    """
-    Saves the finalized trip details to the SQLite/Postgres database.
-    Uses a fresh, short-lived session to avoid serialization errors.
-    """
-    print("💾 SAVE NODE: Persisting trip data...")
-    
-    session_id = state.get("session_id")
-    details = safe_dict(state.get("trip_details"))
-    
-    if not session_id:
-        print("⚠️ No session_id found. Skipping save.")
-        return {}
-
-    # Prepare data for saving
-    source = get_trip(details, "source")
-    destination = get_trip(details, "destination")
-    start_date = get_trip(details, "start_date")
-    
-    # Use the context manager to open/close the connection automatically
-    async with SessionLocal() as session:
-        try:
-            # 1. Check if Trip exists
-            result = await session.execute(
-                select(Trip).where(Trip.session_id == session_id)
-            )
-            existing_trip = result.scalars().first()
-
-            if existing_trip:
-                # Update existing
-                existing_trip.source = source
-                existing_trip.destination = destination
-                existing_trip.start_date = start_date
-                # If you have final_itinerary in state, save it too
-                if state.get("final_itinerary"):
-                    existing_trip.final_itinerary = state["final_itinerary"]
-                print(f"✅ Updated Trip: {session_id}")
-            else:
-                # Create new
-                new_trip = Trip(
-                    session_id=session_id,
-                    source=source,
-                    destination=destination,
-                    start_date=start_date
-                )
-                session.add(new_trip)
-                print(f"✅ Created New Trip: {session_id}")
-
-            await session.commit()
-            
-        except Exception as e:
-            print(f"❌ Database Save Error: {e}")
-            await session.rollback()
-
-    return {"messages": [AIMessage(content="I've saved your itinerary details.")]}
-
-# =========================================================
-# 7️⃣ ROUTING
+# 🔄 ROUTING & GRAPH SETUP
 # =========================================================
 workflow = StateGraph(AgentState)
 
 workflow.add_node("extractor", extraction_node)
 workflow.add_node("planner", planner_node)
-workflow.add_node("tools", tool_execution_node)
-workflow.add_node("confirm", confirm_transport_node)
+
+# Stream Pipeline
+workflow.add_node("greeting_gen", greeting_node)
+workflow.add_node("flight_search", flight_search_node)
+workflow.add_node("train_search", train_search_node)
+
+# Standard Nodes
+workflow.add_node("hotel_search", hotel_search_node)
 workflow.add_node("responder", response_node)
 workflow.add_node("saver", save_itinerary_node)
 
+# Entry
 workflow.set_entry_point("extractor")
-
 workflow.add_edge("extractor", "planner")
-workflow.add_edge("tools", "responder")
-workflow.add_edge("confirm", "responder")
 
-def route_from_planner(state: AgentState):
-    # Normalize phase string
-    phase = str(state.get("current_phase", "gathering_info")).strip()
+# Conditional Routing
+def route_planner(state: AgentState):
+    phase = state.get("current_phase", "gathering_info")
     
-    if phase == "ready_to_search": return "tools"
-    if phase == "search_hotels": return "tools" 
-    if phase == "confirm_transport": return "confirm"
-    return "responder"
+    if phase == "ready_to_search":
+        return "greeting_gen" 
+    if phase == "search_hotels":
+        return "hotel_search"
+    if phase == "confirm_transport":
+        return "responder"
+    
+    return "responder" # Default
 
-workflow.add_conditional_edges("planner", route_from_planner)
-workflow.add_edge("responder", END)
+workflow.add_conditional_edges("planner", route_planner)
+
+# Pipeline Edges
+workflow.add_edge("greeting_gen", "flight_search")
+workflow.add_edge("flight_search", "train_search")
+workflow.add_edge("train_search", "saver")
 workflow.add_edge("saver", END)
+
+# Standard Edges
+workflow.add_edge("hotel_search", "responder")
+workflow.add_edge("responder", END)

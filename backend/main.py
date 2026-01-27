@@ -3,12 +3,16 @@ load_dotenv()
 
 import uvicorn
 import aiosqlite 
+import json
+import asyncio
 from fastapi import FastAPI, HTTPException, Depends
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver 
-from typing import Dict, Any
+from langgraph.graph.state import CompiledStateGraph
+from typing import Dict, Any, Optional 
 
 from database import get_db, init_db
 from schemas import UserMessage
@@ -30,7 +34,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-agent_with_memory = None
+# Global variables to hold state
+# ✅ FIX: Explicit Type Hint removes the "red line" warning in IDEs
+agent_with_memory: Optional[CompiledStateGraph] = None
 db_connection = None
 
 @app.on_event("startup")
@@ -61,6 +67,9 @@ async def on_shutdown():
 async def root():
     return {"message": "TravelGenie AI System is Online 🟢"}
 
+# ---------------------------------------------------------
+# 🔹 STANDARD CHAT ENDPOINT (For Selections/Confirmations)
+# ---------------------------------------------------------
 @app.post("/chat")
 async def chat_endpoint(user_input: UserMessage):
     if not agent_with_memory:
@@ -95,6 +104,74 @@ async def chat_endpoint(user_input: UserMessage):
         "response": ai_response,
         "current_phase": final_state.get("current_phase", "unknown")
     }
+
+# ---------------------------------------------------------
+# 🔹 STREAMING ENDPOINT (For Planning Phase)
+# ---------------------------------------------------------
+@app.post("/chat/stream")
+async def chat_stream_endpoint(user_input: UserMessage):
+    """
+    Streaming Endpoint: Returns SSE (Server-Sent Events)
+    This allows the Greeting -> Flights -> Trains to appear sequentially.
+    """
+    if not agent_with_memory:
+        raise HTTPException(status_code=500, detail="Agent not initialized")
+
+    session_id = user_input.session_id
+    config = {"configurable": {"thread_id": session_id}}
+    
+    inputs = {
+        "messages": [HumanMessage(content=user_input.message)],
+        "session_id": session_id
+    }
+    
+    if user_input.trip_data:
+        inputs["trip_details"] = user_input.trip_data
+        inputs["current_phase"] = "ready_to_search"
+
+    async def event_generator():
+
+        async for event in agent_with_memory.astream_events(inputs, config=config, version="v1"):
+            
+            kind = event["event"]
+            name = event.get("name", "")
+            
+            # 1. Detect Greeting Completion (from greeting_node)
+            if kind == "on_chain_end" and name == "greeting_gen":
+                try:
+                    # Extract the message content from the node output
+                    messages = event["data"]["output"]["messages"]
+                    output_text = messages[0].content
+                    
+                    if "GREETING_Start:" in output_text:
+                        clean_text = output_text.replace("GREETING_Start: ", "")
+                        yield f"data: {json.dumps({'type': 'greeting', 'content': clean_text})}\n\n"
+                except Exception as e:
+                    print(f"Stream Greeting Error: {e}")
+
+            # 2. Detect Flight Search Completion (from flight_search_node)
+            elif kind == "on_chain_end" and name == "flight_search":
+                try:
+                    raw_data = event["data"]["output"]["search_results"]
+                    if "FLIGHTS_DONE:" in raw_data:
+                        json_str = raw_data.replace("FLIGHTS_DONE: ", "")
+                        yield f"data: {json.dumps({'type': 'flights', 'data': json.loads(json_str)})}\n\n"
+                except Exception as e:
+                    print(f"Stream Flight Error: {e}")
+
+            # 3. Detect Train Search Completion (from train_search_node)
+            elif kind == "on_chain_end" and name == "train_search":
+                try:
+                    raw_data = event["data"]["output"]["search_results"]
+                    if "TRAINS_DONE:" in raw_data:
+                        json_str = raw_data.replace("TRAINS_DONE: ", "")
+                        yield f"data: {json.dumps({'type': 'trains', 'data': json.loads(json_str)})}\n\n"
+                except Exception as e:
+                    print(f"Stream Train Error: {e}")
+
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 @app.get("/trip/{session_id}")
 async def get_trip_history(session_id: str):
