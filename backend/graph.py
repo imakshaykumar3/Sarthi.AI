@@ -11,7 +11,7 @@ from langchain_core.runnables import RunnableConfig
 from sqlalchemy.future import select
 
 # --- Project Imports ---
-from llms import gpt_llm, gemini_llm
+from llms import gpt_llm, gemini_llm, greeting_llm
 from state import AgentState
 from tools import search_flights, search_trains, search_hotels
 from prompts import MASTER_SYSTEM_PROMPT
@@ -94,61 +94,6 @@ def extraction_node(state: AgentState):
         
     return {}
 
-# # =========================================================
-# # 2️⃣ PLANNER NODE (Semantic Router)
-# # =========================================================
-# router_llm = gpt_llm.with_structured_output(UserIntent)
-
-# def planner_node(state: AgentState):
-#     phase = state.get("current_phase", "gathering_info")
-#     messages = state.get("messages", [])
-#     last_msg = get_last_user_message(messages)
-#     details = safe_dict(state.get("trip_details"))
-    
-#     print(f"🧠 PLANNER (INTENT): Phase='{phase}' | User='{last_msg}'")
-
-#     system_instruction = f"""
-#     You are a Router for a Travel Agent.
-#     Current Conversation Phase: {phase}
-#     Definitions:
-#     - select_option: User is picking a specific flight, train, or hotel.
-#     - modify_search: User changes dates, location, or budget.
-#     - confirm_proceed: User agrees to move to the next step (e.g., "Yes, find hotels", "Proceed").
-#     - ask_question: User asks about baggage, weather, or details.
-#     """
-    
-#     try:
-#         intent_result = router_llm.invoke([
-#             SystemMessage(content=system_instruction),
-#             HumanMessage(content=last_msg)
-#         ])
-#         intent = intent_result.category
-#         print(f"🧭 ROUTER DECISION: {intent}")
-#     except Exception:
-#         intent = "general_chitchat"
-
-#     # --- TRANSITIONS ---
-#     if intent == "modify_search":
-#         return {"current_phase": "ready_to_search"}
-
-#     if phase == "presenting_options":
-#         if intent == "select_option": return {"current_phase": "confirm_transport"}
-#         if intent == "ask_question": return {"current_phase": "presenting_options"}
-
-#     if phase == "confirm_transport":
-#         if intent == "confirm_proceed" or "hotels" in last_msg.lower():
-#             return {"current_phase": "search_hotels"}
-
-#     if phase == "presenting_hotels":
-#         if intent == "select_option": return {"current_phase": "itinerary"}
-
-#     if phase == "gathering_info":
-#         if (details.get("source") and details.get("destination") and details.get("start_date")):
-#             if intent != "ask_question":
-#                 return {"current_phase": "ready_to_search"}
-
-#     return {"current_phase": phase}
-
 # =========================================================
 # 2️⃣ PLANNER NODE (Semantic Router)
 # =========================================================
@@ -212,35 +157,16 @@ def planner_node(state: AgentState):
 # 3️⃣ STREAMING PIPELINE NODES (The New Architecture)
 # =========================================================
 
-# A. GREETING NODE (Runs first, fast)
-# async def greeting_node(state: AgentState):
-#     details = safe_dict(state.get("trip_details"))
-#     dest = details.get("destination", "your destination")
-    
-#     prompt = f"""
-#     Write a short, high-energy, evocative welcome message about traveling to {dest}.
-#     Max 2 sentences. Use emojis. 
-#     Example: "The misty hills of Darjeeling are calling! 🏔️"
-#     """
-#     response = await gemini_llm.ainvoke(prompt)
-#     # Prefix "GREETING_Start:" tells the frontend to render this as the greeting bubble
-#     return {"messages": [AIMessage(content=f"GREETING_Start: {response.content}")]}
 async def greeting_node(state: AgentState):
     details = safe_dict(state.get("trip_details"))
     dest = details.get("destination", "your destination")
-    
-    # prompt = f"""
-    # Write a short, high-energy, evocative welcome message about traveling to {dest}.
-    # Max 2 sentences. Use emojis. 
-    # Example: "The misty hills of Darjeeling are calling! 🏔️"
-    # """
 
     prompt = f"""
         Write a highly evocative, confidence-boosting welcome message about {dest}
         that makes the reader feel proud and excited about choosing this destination.
         Limit to 2–3 sentences, high energy, vivid imagery, and emojis.
         """
-    response = await gemini_llm.ainvoke(prompt)
+    response = await greeting_llm.ainvoke(prompt)
     
     clean_text = clean_content(response.content)
     

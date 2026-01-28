@@ -1,171 +1,18 @@
-# import os
-# import json
-# import re
-# from amadeus import Client, ResponseError
-# from typing import List, Optional
-from pydantic import BaseModel, Field
-from typing import List
-# try:
-#     from langchain_tavily import TavilySearchResults
-# except ImportError:
-#     from langchain_community.tools.tavily_search import TavilySearchResults
-
-# from langchain_core.tools import tool
-from langchain_core.messages import HumanMessage
-# from llms import data_cleaner_llm 
-
-# tavily_tool = TavilySearchResults(max_results=3)
-
-# amadeus = Client(
-#     client_id=os.getenv('AMADEUS_CLIENT_ID'),
-#     client_secret=os.getenv('AMADEUS_CLIENT_SECRET')
-# )
-
-# AIRLINES = {
-#     "AI": "Air India", "6E": "IndiGo", "SG": "SpiceJet", "UK": "Vistara",
-#     "QP": "Akasa Air", "IX": "Air India Express", "I5": "AirAsia", "G8": "Go First"
-# }
-
-# # ==========================================
-# # 🧠 DYNAMIC IATA RESOLVER (No Hardcoding)
-# # ==========================================
-# def get_iata_code(place_name: str) -> Optional[str]:
-#     """
-#     Finds the IATA code for a city dynamically.
-#     1. Tries Amadeus Direct Lookup (Fastest).
-#     2. If Amadeus finds nothing (e.g., hill station), searches Web for 'Nearest airport to X'.
-#     3. Uses LLM to extract the code from search results.
-#     """
-#     clean_name = place_name.strip()
-#     print(f"🔍 Dynamic IATA Resolve for: {clean_name}...")
-
-#     try:
-#         response = amadeus.reference_data.locations.get(keyword=clean_name, subType="CITY,AIRPORT")
-#         if response.data:
-#             code = response.data[0]['iataCode']
-#             print(f"✅ Amadeus Direct Hit: {clean_name} -> {code}")
-#             return code
-#     except Exception:
-#         pass 
-
-#     print(f"🌍 Amadeus didn't find an airport in {clean_name}. Searching for the NEAREST one...")
-    
-#     try:
-#         query = f"What is the nearest airport to {clean_name}? Return the 3-letter IATA code."
-#         search_result = tavily_tool.invoke(query)
-        
-#         prompt = f"""
-#         TASK: Identify the nearest airport IATA code for "{clean_name}" based on the search results below.
-        
-#         SEARCH RESULTS:
-#         {str(search_result)}
-        
-#         INSTRUCTIONS:
-#         1. Find the name of the nearest airport mentioned.
-#         2. Extract its 3-letter IATA code (e.g. IXB, KUU, COK).
-#         3. Return ONLY the 3-letter code. Nothing else.
-#         """
-        
-#         response_msg = data_cleaner_llm.invoke(prompt)
-#         content = response_msg.content
-        
-#         if isinstance(content, list):
-#             content = " ".join([str(c) for c in content])
-        
-#         code = str(content).strip().upper()
-        
-#         code = re.sub(r'[^A-Z]', '', code)
-        
-#         if len(code) == 3:
-#             print(f"✅ Web Resolved: Nearest airport to {clean_name} is {code}")
-#             return code
-#         else:
-#             print(f"⚠️ LLM returned invalid code: {code}")
-            
-#     except Exception as e:
-#         print(f"⚠️ Dynamic Resolve Failed: {e}")
-    
-#     return None
-# # ==========================================
-# # ✈️ FLIGHT SEARCH TOOL
-# # ==========================================
-# @tool
-# def search_flights(source: str, destination: str, date: str):
-#     """
-#     Fetches REAL-TIME flight data using Amadeus with Dynamic IATA Resolution.
-#     """
-#     flights = []
-    
-#     try:
-#         origin_code = get_iata_code(source)
-#         dest_code = get_iata_code(destination)
-
-#         if not origin_code or not dest_code:
-#             return json.dumps({"error": f"Could not locate airports for {source} or {destination}. Please check spelling."})
-
-#         print(f"✈️ Searching Flights: {origin_code} -> {dest_code} on {date}")
-
-#         response = amadeus.shopping.flight_offers_search.get(
-#             originLocationCode=origin_code,
-#             destinationLocationCode=dest_code,
-#             departureDate=date,
-#             adults=1,
-#             currencyCode='INR',
-#             max=5
-#         )
-        
-#         if response.data:
-#             for offer in response.data:
-#                 itinerary = offer['itineraries'][0]
-#                 segment = itinerary['segments'][0]
-                
-#                 dur_iso = itinerary['duration'] 
-#                 dur = dur_iso.replace("PT", "").replace("H", "h ").replace("M", "m").lower()
-                
-#                 code = segment['carrierCode']
-#                 name = AIRLINES.get(code, code)
-                
-#                 flights.append({
-#                     "airline": name,
-#                     "number": f"{code}-{segment['number']}",
-#                     "dep": segment['departure']['at'].split("T")[1][:5],
-#                     "arr": segment['arrival']['at'].split("T")[1][:5],
-#                     "dur": dur,
-#                     "price": int(float(offer['price']['total'])),
-#                     "stops": len(itinerary['segments']) - 1,
-#                     "from_city": source.title(),     
-#                     "to_city": destination.title()   
-#                 })
-            
-#             return json.dumps(flights)
-#         else:
-#             print("⚠️ Amadeus found no flights.")
-
-#     except Exception as e:
-#         print(f"⚠️ Flight Search Error: {e}")
-
-#     # --- STRATEGY 3: Web Search Fallback ---
-#     print(f"🔄 Amadeus empty/failed. Trying Web Search...")
-#     try:
-#         query = f"flights from {source} to {destination} on {date} price"
-#         raw_results = tavily_tool.invoke(query)
-#         return f"WEB_SEARCH_RESULTS: {str(raw_results)}" 
-#     except Exception as e:
-#         return json.dumps({"error": str(e)})
-
+#graph.py
 import os
 import json
 import re
 from amadeus import Client, ResponseError
 from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, Field
 from langchain_core.tools import tool
 try:
     from langchain_tavily import TavilySearchResults
 except ImportError:
     from langchain_community.tools.tavily_search import TavilySearchResults
 
-# 🟢 IMPORT CORRECT LLM (Flash/Lite)
 from llms import data_cleaner_llm, gpt_llm
+from langchain_core.messages import HumanMessage
 
 # Initialize Tools
 tavily_tool = TavilySearchResults(max_results=3)
@@ -181,65 +28,88 @@ AIRLINES = {
 }
 
 # ==========================================
-# 🧠 DYNAMIC IATA RESOLVER (Fixed Logic)
+# 🧠 DYNAMIC IATA RESOLVER
 # ==========================================
 def get_iata_code(place_name: str) -> Optional[str]:
-    """
-    Finds the IATA code for a city dynamically.
-    1. Tries Amadeus Direct Lookup (Fastest).
-    2. If Amadeus finds nothing (e.g., hill station), searches Web for 'Nearest airport to X'.
-    3. Uses LLM to extract the code from search results.
-    """
-    clean_name = place_name.strip()
-    print(f"🔍 Dynamic IATA Resolve for: {clean_name}...")
+    clean_name = place_name.strip().upper()
+    print(f"🔍 Resolving IATA for: {clean_name}...")
 
-    # 1. Try Amadeus First
+    # 1. Amadeus Direct Lookup
     try:
         response = amadeus.reference_data.locations.get(keyword=clean_name, subType="CITY,AIRPORT")
         if response.data:
             code = response.data[0]['iataCode']
-            print(f"✅ Amadeus Direct Hit: {clean_name} -> {code}")
+            name = response.data[0]['name']
+            print(f"✅ Amadeus Direct Hit: {name} ({code})")
             return code
     except Exception:
         pass 
 
     # 2. Web Search Fallback
-    print(f"🌍 Amadeus didn't find an airport in {clean_name}. Searching for the NEAREST one...")
-    
+    print(f"🌍 Searching for nearest major airport to {clean_name}...")
     try:
-        query = f"What is the nearest airport to {clean_name}? Return the 3-letter IATA code."
+        query = f"What is the nearest major commercial airport to {clean_name}? Return 3-letter IATA code."
         search_result = tavily_tool.invoke(query)
         
-        # 🟢 FIX 1: Truncate search results and use stricter prompt
         prompt = f"""
-        TASK: Identify the nearest airport IATA code for "{clean_name}".
-        
-        SEARCH RESULTS:
-        {str(search_result)[:1000]}  
-        
-        INSTRUCTIONS:
-        1. Find the 3-letter IATA code (e.g. IXB, DEL, BOM).
-        2. OUTPUT ONLY THE CODE. Do not write "The code is...".
-        3. If multiple found, pick the nearest one.
+        Identify the nearest MAJOR COMMERCIAL AIRPORT IATA code for "{clean_name}".
+        SEARCH RESULTS: {str(search_result)[:1000]}
+        OUTPUT ONLY THE 3-LETTER CODE (e.g. IXB).
         """
-        
         response_msg = data_cleaner_llm.invoke(prompt)
         content = str(response_msg.content).strip().upper()
-        
-        # 🟢 FIX 2: Strict Regex Extraction (Ignores "The code is..." text)
         match = re.search(r'\b[A-Z]{3}\b', content)
-        
         if match:
-            code = match.group(0)
-            print(f"✅ Web Resolved: Nearest airport to {clean_name} is {code}")
-            return code
-        else:
-            print(f"⚠️ Could not find valid 3-letter code in: {content}")
-            return None
-            
+            return match.group(0)
     except Exception as e:
         print(f"⚠️ Dynamic Resolve Failed: {e}")
-    
+    return None
+
+def get_airport_name(iata_code: str):
+    try:
+        response = amadeus.reference_data.locations.get(
+            keyword=iata_code,
+            subType="AIRPORT"
+        )
+        if response.data:
+            return response.data[0].get("name")
+    except Exception:
+        pass
+    return None
+
+
+def get_city_name_from_city_code(iata_code: str):
+    """
+    Resolve proper city name using CITY lookup.
+    DEL -> New Delhi
+    BOM -> Mumbai
+    """
+    try:
+        airport_resp = amadeus.reference_data.locations.get(
+            keyword=iata_code,
+            subType="AIRPORT"
+        )
+
+        if not airport_resp.data:
+            return None
+
+        city_code = airport_resp.data[0].get("address", {}).get("cityCode")
+
+        if not city_code:
+            return None
+
+        # 2️⃣ Resolve CITY entity
+        city_resp = amadeus.reference_data.locations.get(
+            keyword=city_code,
+            subType="CITY"
+        )
+
+        if city_resp.data:
+            return city_resp.data[0].get("name")
+
+    except Exception as e:
+        print(f"City resolve failed for {iata_code}: {e}")
+
     return None
 
 # ==========================================
@@ -248,89 +118,147 @@ def get_iata_code(place_name: str) -> Optional[str]:
 @tool
 def search_flights(source: str, destination: str, date: str):
     """
-    Fetches REAL-TIME flight data using Amadeus with Dynamic IATA Resolution.
+    Fetches REAL-TIME flight data using Amadeus.
+    Returns city + airport data (MMT / Ixigo style).
     """
-    flights = []
-    
     try:
-        # Resolve IATA codes dynamically
         origin_code = get_iata_code(source)
         dest_code = get_iata_code(destination)
 
         if not origin_code or not dest_code:
-            return json.dumps({"error": f"Could not locate airports for {source} or {destination}. Please check spelling."})
+            return json.dumps({"error": "Airports not found."})
 
         print(f"✈️ Searching Flights: {origin_code} -> {dest_code} on {date}")
 
-        # Call Amadeus API
+        # =============================
+        # 1️⃣ Resolve ORIGIN city properly
+        # =============================
+        origin_airport_resp = amadeus.reference_data.locations.get(
+            keyword=origin_code,
+            subType="AIRPORT"
+        )
+
+        origin_city_code = None
+        if origin_airport_resp.data:
+            origin_city_code = origin_airport_resp.data[0].get("address", {}).get("cityCode")
+
+        from_city_label = get_city_name_from_city_code(origin_city_code)
+
+        # =============================
+        # 2️⃣ Resolve DESTINATION city properly
+        # =============================
+        dest_airport_resp = amadeus.reference_data.locations.get(
+            keyword=dest_code,
+            subType="AIRPORT"
+        )
+
+        dest_city_code = None
+        if dest_airport_resp.data:
+            dest_city_code = dest_airport_resp.data[0].get("address", {}).get("cityCode")
+
+        to_city_label = get_city_name_from_city_code(dest_city_code)
+
+        # =============================
+        # 3️⃣ Resolve airport names
+        # =============================
+        from_airport_name = origin_airport_resp.data[0].get("name") if origin_airport_resp.data else None
+        to_airport_name = dest_airport_resp.data[0].get("name") if dest_airport_resp.data else None
+
+        # =============================
+        # 4️⃣ Search flights
+        # =============================
         response = amadeus.shopping.flight_offers_search.get(
             originLocationCode=origin_code,
             destinationLocationCode=dest_code,
             departureDate=date,
             adults=1,
-            currencyCode='INR',
+            currencyCode="INR",
             max=5
         )
-        
+
+        flights = []
+
         if response.data:
             for offer in response.data:
-                itinerary = offer['itineraries'][0]
-                segment = itinerary['segments'][0]
-                
-                # Parse Duration
-                dur_iso = itinerary['duration'] 
-                dur = dur_iso.replace("PT", "").replace("H", "h ").replace("M", "m").lower()
-                
-                # Parse Airline
-                code = segment['carrierCode']
-                name = AIRLINES.get(code, code)
-                
+                itinerary = offer["itineraries"][0]
+                segment = itinerary["segments"][0]
+
+                duration = (
+                    itinerary["duration"]
+                    .replace("PT", "")
+                    .replace("H", "h ")
+                    .replace("M", "m")
+                    .lower()
+                )
+
+                carrier = segment["carrierCode"]
+
                 flights.append({
-                    "airline": name,
-                    "number": f"{code}-{segment['number']}",
-                    "dep": segment['departure']['at'].split("T")[1][:5],
-                    "arr": segment['arrival']['at'].split("T")[1][:5],
-                    "dur": dur,
-                    "price": int(float(offer['price']['total'])),
-                    "stops": len(itinerary['segments']) - 1,
-                    "from_city": source.title(),     
-                    "to_city": destination.title()   
+                    "airline": AIRLINES.get(carrier, carrier),
+                    "number": f"{carrier}-{segment['number']}",
+                    "dep": segment["departure"]["at"].split("T")[1][:5],
+                    "arr": segment["arrival"]["at"].split("T")[1][:5],
+                    "dur": duration,
+                    "price": int(float(offer["price"]["total"])),
+                    "stops": len(itinerary["segments"]) - 1,
+
+                    # ✅ AIRPORT DATA
+                    "from_airport_name": from_airport_name,
+                    "from_airport_code": origin_code,
+                    "to_airport_name": to_airport_name,
+                    "to_airport_code": dest_code,
+
+                    # ✅ PROPER CITY LABELS (THIS FIXES EVERYTHING)
+                    "from_city_label": from_city_label,
+                    "to_city_label": to_city_label,
+
+                    # Context only
+                    "user_destination": destination.title()
                 })
-            
-            return json.dumps(flights)
-        else:
-            print("⚠️ Amadeus found no flights.")
 
-    except Exception as e:
-        print(f"⚠️ Flight Search Error: {e}")
-
-    # --- STRATEGY 3: Web Search Fallback ---
-    print(f"🔄 Amadeus empty/failed. Trying Web Search...")
-    try:
-        query = f"flights from {source} to {destination} on {date} price"
-        raw_results = tavily_tool.invoke(query)
-        # Return special marker for LLM to parse later
-        return f"WEB_SEARCH_RESULTS: {str(raw_results)}" 
-    except Exception as e:
-        return json.dumps({"error": str(e)})
     
+
+
+            return json.dumps(flights)
+
+    except Exception as e:
+        print(f"⚠️ Flight Error: {e}")
+
+    # 🔄 Fallback
+    try:
+        print("🔄 API Failed. Trying Web Search...")
+        res = tavily_tool.invoke(
+            f"flights from {source} to {destination} on {date} price"
+        )
+        return f"WEB_SEARCH_RESULTS: {str(res)}"
+    except Exception:
+        return json.dumps([])
+
+
+
 # ==========================================
-# 🚆 TRAIN SEARCH TOOL
+# 🚆 TRAIN SEARCH TOOL (FIXED)
 # ==========================================
 class TrainClass(BaseModel):
-    name: str = Field(description="Class name like 'SL', '3A', '2A', '1A', 'CC'")
+    name: str = Field(description="Class name (SL, 3A, 2A)")
     price: float = Field(description="Price in INR")
-    status: str = Field(description="REALISTIC Status. e.g. 'Available 12', 'WL 45', 'RAC 10'. NEVER use '(Approx)'.")
+    status: str = Field(description="Availability Status")
 
+# ✅ THIS CLASS DEFINITION WAS MISSING IN YOUR PREVIOUS RUN
 class TrainInfo(BaseModel):
-    name: str = Field(description="Name of the train")
-    number: str = Field(description="Train number")
-    departure_time: str = Field(description="HH:MM format")
-    arrival_time: str = Field(description="HH:MM format")
-    duration: str = Field(description="Duration e.g., '12h 30m'")
-    from_station: str = Field(description="Origin station code")
-    to_station: str = Field(description="Destination station code")
-    classes: List[TrainClass] = Field(description="List of available classes with realistic status")
+    name: str = Field(description="Train Name")
+    number: str = Field(description="Train Number")
+    departure_time: str = Field(description="HH:MM")
+    arrival_time: str = Field(description="HH:MM")
+    duration: str = Field(description="Duration")
+    
+    # These fields fix the "DEST" issue
+    from_station_name: str = Field(description="Origin Station Name (e.g. New Delhi)")
+    from_station_code: str = Field(description="Origin Code (e.g. NDLS)")
+    to_station_name: str = Field(description="Destination Station Name (e.g. New Jalpaiguri)")
+    to_station_code: str = Field(description="Destination Code (e.g. NJP)")
+    
+    classes: List[TrainClass]
 
 class TrainList(BaseModel):
     trains: List[TrainInfo]
@@ -338,7 +266,7 @@ class TrainList(BaseModel):
 @tool
 def search_trains(source: str, destination: str, date: str):
     """
-    Searches for Train Timetables and returns STRICT JSON data.
+    Searches for Train Timetables, prices, and availability using IRCTC data via web search.
     """
     print(f"🚂 Searching Trains: {source} -> {destination} on {date}")
     
@@ -348,13 +276,12 @@ def search_trains(source: str, destination: str, date: str):
     except Exception as e:
         print(f"Error fetching train data: {e}")
         return json.dumps([])
-        
 
     parser_llm = gpt_llm.with_structured_output(TrainList)
     
     prompt = f"""
     You are a Data Extractor.
-    Extract train details from the following search results.
+    Extract train details from the search results below.
     
     CONTEXT:
     Source: {source}
@@ -364,23 +291,21 @@ def search_trains(source: str, destination: str, date: str):
     SEARCH RESULTS:
     {raw_results}
     
-    🚨 IMPORTANT INSTRUCTIONS FOR REALISM:
-    1. Sleeper Class (SL)**: You MUST extract 'SL' or 'Sleeper' class if listed. Do NOT ignore it.
-       - If SL price is missing, Estimate it at ~₹500-900.
-       - If 3A price is missing, Estimate it at ~₹1800-2500.
-    2. **Availability**: You MUST extract or generate specific numbers.
-       - GOOD: "Available 23", "WL 56", "RAC 12", "Available 104"
-       - BAD: "Available (Approx)", "Waitlist", "Available"
-       - If the exact number is missing in the text, GENERATE a realistic number based on the train type (e.g. SL usually has high availability or high WL).
+    🚨 CRITICAL INSTRUCTIONS:
     
-    3. **Prices**:
-       - If missing, ESTIMATE: SL=~800, 3A=~2000, 2A=~3000.
+    1. **STATION NAMES**:
+       - Extract the FULL Station Name for "{destination}".
+       - If "{destination}" is a hill station (e.g., Darjeeling, Manali), use the **NEAREST RAILHEAD** (e.g., NJP, Kalka).
+       - Populate 'to_station_name' with this real name.
+       - Populate 'to_station_code' with the code.
 
-    4. **Classes**:
-       - Return a list of classes (SL, 3A, 2A) for each train.
+    2. **REALISM**:
+       - Extract 'SL' class if listed. Estimate price (~₹800) if missing.
+       - Generate realistic availability (e.g. "Available 23", "WL 56").
     """
     
     try:
+        # ✅ FIX: Convert Pydantic Object -> JSON String immediately
         cleaned_data = parser_llm.invoke([HumanMessage(content=prompt)])
         return json.dumps([t.model_dump() for t in cleaned_data.trains])
         
