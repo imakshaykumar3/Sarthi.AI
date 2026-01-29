@@ -3,7 +3,6 @@ import { Train, Check } from "lucide-react";
 
 /* ================= DATE HELPERS ================= */
 
-// Format date like: 31 JAN
 const formatDate = (dateStr) => {
   if (!dateStr) return "";
   try {
@@ -25,7 +24,7 @@ const getBaseDate = (train) => {
     train.start_date ||
     train.journey_date ||
     train.date ||
-    new Date().toISOString().split("T")[0] // FINAL fallback
+    new Date().toISOString().split("T")[0] 
   );
 };
 

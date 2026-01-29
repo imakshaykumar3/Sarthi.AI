@@ -1,7 +1,7 @@
 #models.py
 from sqlalchemy import Column, Integer, String, JSON, DateTime
 from sqlalchemy.sql import func
-from database import Base
+from app.core.database import Base
 
 class Trip(Base):
     __tablename__ = "trips"

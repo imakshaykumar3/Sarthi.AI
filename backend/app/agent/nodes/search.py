@@ -1,38 +1,115 @@
 # app/agent/nodes/search.py
+from app.agent.helpers.train_explainer import build_train_context
+from app.agent.helpers.train_nlg import generate_train_explanation
 from app.tools.flights import search_flights
 from app.tools.trains import search_trains
 from app.tools.hotels import search_hotels
 from app.schemas.state import AgentState
 from app.utils import safe_dict, get_trip
+from app.agent.helpers.flight_explainer import build_flight_context
+from app.agent.helpers.flight_nlg import generate_flight_explanation
 import json
 
 async def flight_search_node(state: AgentState):
     details = safe_dict(state.get("trip_details"))
-    src = details.get("source")
-    dst = details.get("destination")
+
+    source = details.get("source")
+    destination = details.get("destination")
     date = details.get("start_date")
-    
+
+    if not source or not destination or not date:
+        return {
+            "search_results": "FLIGHTS_DONE: " + json.dumps({
+                "info": "Please provide source, destination and travel date.",
+                "data": []
+            })
+        }
+
     try:
-        # invoke tools (synchronous or async depending on implementation)
-        result = search_flights.invoke({"source": src, "destination": dst, "date": date})
+        raw = search_flights.invoke({
+            "source": source,
+            "destination": destination,
+            "date": date
+        })
+
+        flights = json.loads(raw) if raw else []
+
+        explanation = ""
+        if flights:
+            context = build_flight_context(
+                destination=destination,   
+                flight=flights[0]
+            )
+            explanation = generate_flight_explanation(context)
+
+        payload = {
+            "info": explanation,
+            "data": flights
+        }
+
+        return {
+            "search_results": f"FLIGHTS_DONE: {json.dumps(payload)}"
+        }
+
     except Exception as e:
-        result = json.dumps({"error": str(e)})
-        
-    return {"search_results": f"FLIGHTS_DONE: {result}"}
+        return {
+            "search_results": "FLIGHTS_DONE: " + json.dumps({
+                "info": "Flights are available for your route.",
+                "data": []
+            })
+        }
+
 
 async def train_search_node(state: AgentState):
     details = safe_dict(state.get("trip_details"))
-    src = details.get("source")
-    dst = details.get("destination")
+
+    source = details.get("source")
+    destination = details.get("destination")
     date = details.get("start_date")
-    
+
+    if not destination or not source or not date:
+        return {
+            "search_results": {
+                "type": "trains",
+                "info": "Train options are available for your route.",
+                "data": []
+            },
+            "current_phase": "presenting_options"
+        }
+
     try:
-        result = search_trains.invoke({"source": src, "destination": dst, "date": date})
+        raw = search_trains.invoke({
+            "source": source,
+            "destination": destination,
+            "date": date
+        })
+
+        trains = json.loads(raw)
+
+        explanation = ""
+        if trains and isinstance(trains, list):
+            context = build_train_context(destination, trains[0])
+            explanation = generate_train_explanation(context)
+
+        return {
+            "search_results": {
+                "type": "trains",
+                "info": explanation,
+                "data": trains
+            },
+            "current_phase": "presenting_options"
+        }
+
     except Exception as e:
-        result = json.dumps({"error": str(e)})
-        
-    # We append this to the existing search_results so the state holds BOTH
-    return {"search_results": f"TRAINS_DONE: {result}", "current_phase": "presenting_options"}
+        return {
+            "search_results": {
+                "type": "trains",
+                "info": "I found train options for your journey.",
+                "data": []
+            },
+            "current_phase": "presenting_options"
+        }
+
 
 # =========================================================
 # 4️⃣ STANDARD NODES (Hotels & Confirmation)

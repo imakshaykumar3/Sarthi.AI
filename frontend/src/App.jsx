@@ -81,11 +81,17 @@ function App() {
         } 
         // Handle Flights
         else if (chunk.type === "flights") {
-            currentData.flights_section = { info: "Found Flights", data: chunk.data };
+          currentData.flights_section = {
+            info: chunk.info || "Flight options for your journey",
+            data: chunk.data
+          };
         }
         // Handle Trains
         else if (chunk.type === "trains") {
-            currentData.trains_section = { info: "Found Trains", data: chunk.data };
+          currentData.trains_section = {
+            info: chunk.info || "Train options for your journey",
+            data: chunk.data
+          };
         }
 
         // 5. Update the LAST message in state with the new JSON structure

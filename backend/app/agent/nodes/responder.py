@@ -5,7 +5,6 @@ from app.schemas.state import AgentState
 from app.utils import safe_dict
 
 def response_node(state: AgentState):
-    # This handles non-streaming responses (e.g. Confirmation, Hotels, Errors)
     phase = state.get("current_phase")
     search_data = state.get("search_results", "")
     details = safe_dict(state.get("trip_details"))

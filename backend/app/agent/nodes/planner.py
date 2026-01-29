@@ -2,7 +2,7 @@
 from langchain_core.messages import SystemMessage, HumanMessage
 from app.core.llms import gpt_llm
 from app.schemas.state import AgentState
-from schemas import UserIntent
+from app.schemas.api import UserIntent
 from app.utils import safe_dict, get_last_user_message
 
 router_llm = gpt_llm.with_structured_output(UserIntent)
@@ -16,14 +16,14 @@ def planner_node(state: AgentState):
     print(f"🧠 PLANNER (INTENT): Phase='{phase}' | User='{last_msg}'")
 
     system_instruction = f"""
-    You are a Router for a Travel Agent.
-    Current Conversation Phase: {phase}
-    Definitions:
-    - select_option: User is picking a specific flight, train, or hotel.
-    - modify_search: User changes dates, location, or budget.
-    - confirm_proceed: User agrees to move to the next step (e.g., "Yes, find hotels", "Proceed").
-    - ask_question: User asks about baggage, weather, or details.
-    """
+        You are a Router for a Travel Agent.
+        Current Conversation Phase: {phase}
+        Definitions:
+        - select_option: User is picking a specific flight, train, or hotel.
+        - modify_search: User changes dates, location, or budget.
+        - confirm_proceed: User agrees to move to the next step (e.g., "Yes, find hotels", "Proceed").
+        - ask_question: User asks about baggage, weather, or details.
+        """
     
     try:
         intent_result = router_llm.invoke(

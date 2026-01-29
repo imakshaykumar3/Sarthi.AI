@@ -155,17 +155,32 @@ async def chat_stream_endpoint(user_input: UserMessage):
                     raw_data = event["data"]["output"]["search_results"]
                     if "FLIGHTS_DONE:" in raw_data:
                         json_str = raw_data.replace("FLIGHTS_DONE: ", "")
-                        yield f"data: {json.dumps({'type': 'flights', 'data': json.loads(json_str)})}\n\n"
+                        payload = json.loads(json_str)
+
+                        event_payload = {
+                            "type": "flights",
+                            "info": payload.get("info", ""),
+                            "data": payload.get("data", [])
+                        }
+
+                        yield f"data: {json.dumps(event_payload)}\n\n"
+
                 except Exception as e:
                     print(f"Stream Flight Error: {e}")
 
             # 3. Detect Train Search Completion (from train_search_node)
             elif kind == "on_chain_end" and name == "train_search":
                 try:
-                    raw_data = event["data"]["output"]["search_results"]
-                    if "TRAINS_DONE:" in raw_data:
-                        json_str = raw_data.replace("TRAINS_DONE: ", "")
-                        yield f"data: {json.dumps({'type': 'trains', 'data': json.loads(json_str)})}\n\n"
+                    payload = event["data"]["output"]["search_results"]
+
+                    event_payload = {
+                        "type": "trains",
+                        "info": payload.get("info", "Train options for your journey"),
+                        "data": payload.get("data", [])
+                    }
+
+                    yield f"data: {json.dumps(event_payload)}\n\n"
+
                 except Exception as e:
                     print(f"Stream Train Error: {e}")
 

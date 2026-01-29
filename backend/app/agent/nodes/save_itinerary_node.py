@@ -1,12 +1,11 @@
 # app/agent/nodes/save_itinerary_node.py
 from app.schemas.state import AgentState
 from app.utils import safe_dict
-from database import SessionLocal
+from app.core.database import SessionLocal
 from app.schemas.models import Trip 
 from sqlalchemy.future import select
 
 async def save_itinerary_node(state: AgentState):
-    # (Same as before - decoupled DB save)
     session_id = state.get("session_id")
     details = safe_dict(state.get("trip_details"))
     if not session_id: return {}
