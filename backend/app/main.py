@@ -17,6 +17,7 @@ from typing import Dict, Any, Optional
 from app.core.database import get_db, init_db
 from app.schemas.api import UserMessage
 from app.agent.graph import workflow 
+from app.schemas.models import Trip
 
 # --- App Configuration ---
 app = FastAPI(

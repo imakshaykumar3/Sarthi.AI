@@ -2,7 +2,7 @@
 from app.schemas.state import AgentState
 from app.utils import safe_dict
 from database import SessionLocal
-from models import Trip 
+from app.schemas.models import Trip 
 from sqlalchemy.future import select
 
 async def save_itinerary_node(state: AgentState):

@@ -1,7 +1,7 @@
 # app/agent/nodes/greeting.py
 from app.schemas.state import AgentState
 from app.utils import safe_dict, get_trip
-from graph import clean_content
+from app.utils import clean_content
 from langchain_core.messages import AIMessage
 from app.core.llms import greeting_llm
 
