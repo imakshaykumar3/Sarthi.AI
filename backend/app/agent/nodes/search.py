@@ -115,13 +115,35 @@ async def train_search_node(state: AgentState):
 # 4️⃣ STANDARD NODES (Hotels & Confirmation)
 # =========================================================
 
-def hotel_search_node(state: AgentState):
+# app/agent/nodes/search.py
+
+async def hotel_search_node(state: AgentState):
+    """
+    Fetches hotel data and transitions the phase to presentation.
+    """
     details = safe_dict(state.get("trip_details"))
-    dst = get_trip(details, "destination")
-    date = get_trip(details, "start_date")
+    # Use .get() to avoid KeyErrors if the extractor missed something
+    dst = details.get("destination", "unknown")
+    date = details.get("start_date", "unknown")
+    
     print(f"🏨 Searching Hotels in {dst}...")
+    
     try:
-        raw_hotels = search_hotels.invoke({"location": dst, "check_in": date})
+        # ✅ FIX 1: Use ainvoke for async compatibility with FastAPI/LangGraph
+        # ✅ FIX 2: Ensure the tool call is awaited
+        raw_hotels = await search_hotels.ainvoke({
+            "location": dst, 
+            "check_in": date
+        })
+        
+        # ✅ FIX 3: Convert to string immediately to prevent Pydantic serialization errors
+        search_data = str(raw_hotels)
+        
     except Exception as e:
-        raw_hotels = "Error searching hotels."
-    return {"search_results": raw_hotels, "current_phase": "presenting_hotels"}
+        print(f"❌ Hotel Search Error: {e}")
+        search_data = "I'm sorry, I couldn't retrieve hotel listings at this moment."
+        
+    return {
+        "search_results": search_data, 
+        "current_phase": "presenting_hotels"
+    }

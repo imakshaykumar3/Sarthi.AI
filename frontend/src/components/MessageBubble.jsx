@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Bot, User, Sparkles } from 'lucide-react';
+import { Bot, User, Sparkles, Building2 } from 'lucide-react';
 import FlightCard from './FlightCard';
 import TrainCard from './TrainCard';
+import HotelCard from './HotelCard'; // ✅ Added HotelCard Import
 
 // ✅ ROBUST PARSER: Handles Raw JSON, Markdown Blocks, and Plain Text
 const extractJson = (content) => {
@@ -12,7 +13,7 @@ const extractJson = (content) => {
   // 1. Try parsing the WHOLE string as JSON first
   try {
     const parsed = JSON.parse(content);
-    if (parsed.greeting || parsed.flights_section || parsed.trains_section || Array.isArray(parsed)) {
+    if (parsed.greeting || parsed.flights_section || parsed.trains_section || parsed.hotels_section || Array.isArray(parsed)) {
        return { text: "", data: parsed };
     }
   } catch (e) {
@@ -52,7 +53,8 @@ const MessageBubble = ({ role, content, onOptionSelect }) => {
 
   // Helper to handle selection click
   const handleSelection = (item) => {
-      const id = item.number || item.id; 
+      // Use number for flights/trains, or name/id for hotels
+      const id = item.number || item.id || item.name; 
       setSelectedId(id);
       if (onOptionSelect) onOptionSelect(item);
   };
@@ -83,7 +85,7 @@ const MessageBubble = ({ role, content, onOptionSelect }) => {
                 </div>
             )}
 
-            {/* 2. STRUCTURED DATA (The New Segmented UI) */}
+            {/* 2. STRUCTURED DATA (Segmented UI) */}
             {data && !Array.isArray(data) && (
                 <div className="flex flex-col gap-4">
                     {/* A. GREETING BUBBLE */}
@@ -99,7 +101,6 @@ const MessageBubble = ({ role, content, onOptionSelect }) => {
                     {/* B. FLIGHT SECTION */}
                     {data.flights_section && (
                         <div className="animate-fade-in delay-100">
-                            {/* Section Header */}
                             <div className="flex items-center gap-2 mb-3 ml-1">
                                 <div className="bg-blue-100 p-1.5 rounded-lg text-blue-600">
                                     <Sparkles size={14} />
@@ -109,7 +110,6 @@ const MessageBubble = ({ role, content, onOptionSelect }) => {
                                 </span>
                             </div>
                             
-                            {/* Context Info Box */}
                             {data.flights_section.info && (
                                 <div className="bg-blue-50 text-blue-900 text-xs px-4 py-3 rounded-xl mb-4 border border-blue-100 flex items-start gap-2">
                                     <span className="text-lg">✈️</span>
@@ -117,8 +117,7 @@ const MessageBubble = ({ role, content, onOptionSelect }) => {
                                 </div>
                             )}
 
-                            {/* Cards Grid - 🚨 FIXED: Added Array.isArray Check */}
-                            {Array.isArray(data.flights_section.data) ? (
+                            {Array.isArray(data.flights_section.data) && (
                                 <div className="grid gap-4">
                                     {data.flights_section.data.map((flight, idx) => (
                                         <FlightCard 
@@ -129,10 +128,6 @@ const MessageBubble = ({ role, content, onOptionSelect }) => {
                                         />
                                     ))}
                                 </div>
-                            ) : (
-                                <div className="text-xs text-red-500 p-2 border border-red-200 rounded bg-red-50">
-                                    No flight data available or incorrect format.
-                                </div>
                             )}
                         </div>
                     )}
@@ -140,7 +135,6 @@ const MessageBubble = ({ role, content, onOptionSelect }) => {
                     {/* C. TRAIN SECTION */}
                     {data.trains_section && (
                         <div className="animate-fade-in delay-200 pt-4 border-t border-slate-100/50 mt-2">
-                             {/* Section Header */}
                              <div className="flex items-center gap-2 mb-3 ml-1">
                                 <div className="bg-orange-100 p-1.5 rounded-lg text-orange-600">
                                     <Sparkles size={14} />
@@ -150,7 +144,6 @@ const MessageBubble = ({ role, content, onOptionSelect }) => {
                                 </span>
                             </div>
 
-                            {/* Context Info Box */}
                             {data.trains_section.info && (
                                 <div className="bg-orange-50 text-orange-900 text-xs px-4 py-3 rounded-xl mb-4 border border-orange-100 flex items-start gap-2">
                                     <span className="text-lg">🚆</span>
@@ -158,8 +151,7 @@ const MessageBubble = ({ role, content, onOptionSelect }) => {
                                 </div>
                             )}
 
-                            {/* Cards Grid - 🚨 FIXED: Added Array.isArray Check */}
-                            {Array.isArray(data.trains_section.data) ? (
+                            {Array.isArray(data.trains_section.data) && (
                                 <div className="grid gap-4">
                                     {data.trains_section.data.map((train, idx) => (
                                         <TrainCard 
@@ -170,9 +162,32 @@ const MessageBubble = ({ role, content, onOptionSelect }) => {
                                         />
                                     ))}
                                 </div>
-                            ) : (
-                                <div className="text-xs text-red-500 p-2 border border-red-200 rounded bg-red-50">
-                                    No train data available.
+                            )}
+                        </div>
+                    )}
+
+                    {/* D. HOTEL SECTION (Added for consistency) */}
+                    {data.hotels_section && (
+                        <div className="animate-fade-in delay-300 pt-4 border-t border-slate-100/50 mt-2">
+                             <div className="flex items-center gap-2 mb-3 ml-1">
+                                <div className="bg-emerald-100 p-1.5 rounded-lg text-emerald-600">
+                                    <Building2 size={14} />
+                                </div>
+                                <span className="text-xs font-bold uppercase tracking-widest text-slate-500">
+                                    Recommended Stays
+                                </span>
+                            </div>
+
+                            {Array.isArray(data.hotels_section.data) && (
+                                <div className="grid gap-4">
+                                    {data.hotels_section.data.map((hotel, idx) => (
+                                        <HotelCard 
+                                            key={idx} 
+                                            data={hotel} 
+                                            onSelect={handleSelection} 
+                                            isSelected={selectedId === hotel.name || selectedId === hotel.id}
+                                        />
+                                    ))}
                                 </div>
                             )}
                         </div>
@@ -180,13 +195,15 @@ const MessageBubble = ({ role, content, onOptionSelect }) => {
                 </div>
             )}
 
-            {/* 3. LEGACY LIST SUPPORT (If backend sends simple array) */}
+            {/* 3. LEGACY LIST / FLAT ARRAY SUPPORT */}
             {data && Array.isArray(data) && (
                <div className="w-full grid gap-3 mt-1">
                   {data.map((item, idx) => {
-                      const isSelected = selectedId === item.number;
+                      const id = item.number || item.id || item.name;
+                      const isSelected = selectedId === id;
                       if (item.type === 'flight') return <FlightCard key={idx} flight={item} onSelect={handleSelection} isSelected={isSelected} />;
                       if (item.type === 'train') return <TrainCard key={idx} train={item} onSelect={handleSelection} isSelected={isSelected} />;
+                      if (item.type === 'hotel') return <HotelCard key={idx} data={item} onSelect={handleSelection} isSelected={isSelected} />;
                       return null;
                   })}
                </div>
