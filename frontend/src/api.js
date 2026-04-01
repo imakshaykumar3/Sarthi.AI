@@ -13,7 +13,12 @@ export const getSessionId = () => {
   return session;
 };
 
-// --- 1. Standard Chat (Selections/Confirmations) ---
+// --- 1. Standard Chat (Selections/Confirmations/Itinerary) ---
+/**
+ * Sends a message to the backend. 
+ * @param {string} message - The text content.
+ * @param {object} tripData - Optional object containing updated trip context (e.g. selected_hotel).
+ */
 export const sendMessage = async (message, tripData = null) => {
   const session_id = getSessionId();
   
@@ -22,6 +27,8 @@ export const sendMessage = async (message, tripData = null) => {
     message: message
   };
 
+  // If tripData is provided (like when selecting a hotel), 
+  // we attach it so the Backend AgentState is updated immediately.
   if (tripData) {
       payload.trip_data = {
           source: tripData.source,
@@ -29,7 +36,8 @@ export const sendMessage = async (message, tripData = null) => {
           start_date: tripData.start_date,
           end_date: tripData.end_date,
           budget: tripData.budget,
-          travelers: String(tripData.travellers) 
+          travelers: String(tripData.travellers || tripData.travelers || "1"),
+          selected_hotel: tripData.selected_hotel || null
       };
   }
 
@@ -38,7 +46,7 @@ export const sendMessage = async (message, tripData = null) => {
     return response.data;
   } catch (error) {
     console.error("API Error:", error);
-    return { response: "Error connecting to server." };
+    return { response: "I'm having trouble connecting to the server. Please try again." };
   }
 };
 
@@ -49,6 +57,7 @@ export const getTripState = async () => {
         const response = await axios.get(`${API_URL}/trip/${session_id}`);
         return response.data;
     } catch (error) {
+        console.error("Polling Error:", error);
         return null;
     }
 };
@@ -71,11 +80,13 @@ export const streamMessage = async (message, tripData, onChunk) => {
               start_date: tripData.start_date,
               end_date: tripData.end_date,
               budget: tripData.budget,
-              travelers: String(tripData.travellers),
+              travelers: String(tripData.travellers || "1"),
             }
           : null,
       }),
     });
+
+    if (!response.body) return;
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -90,10 +101,12 @@ export const streamMessage = async (message, tripData, onChunk) => {
       for (const line of lines) {
         if (line.startsWith("data: ")) {
           const jsonStr = line.replace("data: ", "").trim();
+          
           if (jsonStr === "[DONE]") return;
+          
           try {
             const data = JSON.parse(jsonStr);
-            onChunk(data); // Callback to App.jsx to update UI
+            onChunk(data); 
           } catch (e) {
             console.error("Stream Parse Error", e);
           }

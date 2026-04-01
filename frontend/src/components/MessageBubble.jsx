@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Bot, User, Sparkles, Building2 } from 'lucide-react';
+import { Bot, User, Sparkles, Building2, Compass } from 'lucide-react';
 import FlightCard from './FlightCard';
 import TrainCard from './TrainCard';
-import HotelCard from './HotelCard'; // ✅ Added HotelCard Import
+import HotelCard from './HotelCard';
 
 // ✅ ROBUST PARSER: Handles Raw JSON, Markdown Blocks, and Plain Text
 const extractJson = (content) => {
@@ -42,6 +42,18 @@ const extractJson = (content) => {
   return { text: content, data: null };
 };
 
+// Sub-component for clean section headers
+const SectionHeader = ({ icon, label, colorClass }) => (
+  <div className="flex items-center gap-2 mb-3 ml-1 mt-2">
+    <div className={`p-1.5 rounded-lg ${colorClass}`}>
+      {icon}
+    </div>
+    <span className="text-xs font-bold uppercase tracking-widest text-slate-500">
+      {label}
+    </span>
+  </div>
+);
+
 const MessageBubble = ({ role, content, onOptionSelect }) => {
   const isUser = role === 'user';
   
@@ -59,6 +71,12 @@ const MessageBubble = ({ role, content, onOptionSelect }) => {
       if (onOptionSelect) onOptionSelect(item);
   };
 
+  // Logic to identify if this is a premium itinerary message
+  const isItinerary = !isUser && text && (text.includes("Day 1") || text.includes("###"));
+
+  // Split itinerary into individual cards based on '---' delimiter
+  const itineraryDays = isItinerary ? text.split('---').filter(d => d.trim()) : [text];
+
   return (
     <div className={`flex w-full mb-8 ${isUser ? 'justify-end' : 'justify-start'} animate-fade-in-up`}>
       <div className={`flex w-full max-w-4xl ${isUser ? 'flex-row-reverse' : 'flex-row'} gap-4 items-start`}>
@@ -72,16 +90,48 @@ const MessageBubble = ({ role, content, onOptionSelect }) => {
         {/* --- CONTENT CONTAINER --- */}
         <div className="flex-1 flex flex-col gap-6 min-w-0">
             
-            {/* 1. TEXT ONLY (Fallback or standard chat) */}
+            {/* 1. TEXT / ITINERARY BUBBLE */}
             {text && (
-                <div className={`p-4 rounded-2xl shadow-sm text-sm leading-relaxed ${
-                    isUser 
-                    ? 'bg-indigo-600 text-white rounded-tr-none' 
-                    : 'bg-white/90 backdrop-blur-md rounded-tl-none border border-white/50 text-slate-800'
-                }`}>
-                    <div className={`prose ${isUser ? 'prose-invert' : 'prose-slate'} max-w-none`}>
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+                <div className="space-y-4">
+                  {itineraryDays.map((dayContent, idx) => (
+                    <div 
+                      key={idx}
+                      className={`p-8 rounded-[2rem] shadow-xl border transition-all duration-700 ${
+                        isUser 
+                        ? 'bg-indigo-600 text-white rounded-tr-none border-indigo-500' 
+                        : isItinerary
+                          ? 'bg-white/95 backdrop-blur-md rounded-tl-none border-slate-100 hover:shadow-2xl'
+                          : 'bg-white/90 backdrop-blur-md rounded-tl-none border-white/50 text-slate-800 shadow-sm'
+                      }`}
+                    >
+                      {/* Premium Header for Bespoke Itineraries - Only on first card */}
+                      {!isUser && isItinerary && idx === 0 && (
+                        <div className="flex items-center gap-3 mb-6 pb-4 border-b border-slate-100">
+                          <div className="bg-blue-600 p-2 rounded-xl text-white shadow-lg shadow-blue-200">
+                            <Compass className="w-5 h-5 animate-pulse" />
+                          </div>
+                          <div>
+                            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-blue-500 block leading-none mb-1">TravelGenie Expert</span>
+                            <h2 className="text-lg font-black text-slate-900 leading-none tracking-tight">Your Bespoke Itinerary</h2>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className={`prose max-w-none ${
+                          isUser 
+                          ? 'prose-invert prose-p:leading-relaxed' 
+                          : 'prose-slate prose-headings:text-blue-900 prose-strong:text-blue-700 prose-headings:font-black prose-p:font-medium leading-relaxed'
+                      }`}>
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{dayContent.trim()}</ReactMarkdown>
+                      </div>
+
+                      {isItinerary && idx === itineraryDays.length - 1 && (
+                         <div className="mt-8 pt-4 border-t border-blue-50 flex items-center gap-2 text-xs font-bold text-blue-400 italic">
+                            <Sparkles size={14} /> Specially curated for your journey
+                         </div>
+                      )}
                     </div>
+                  ))}
                 </div>
             )}
 
@@ -101,19 +151,16 @@ const MessageBubble = ({ role, content, onOptionSelect }) => {
                     {/* B. FLIGHT SECTION */}
                     {data.flights_section && (
                         <div className="animate-fade-in delay-100">
-                            <div className="flex items-center gap-2 mb-3 ml-1">
-                                <div className="bg-blue-100 p-1.5 rounded-lg text-blue-600">
-                                    <Sparkles size={14} />
-                                </div>
-                                <span className="text-xs font-bold uppercase tracking-widest text-slate-500">
-                                    Flight Options
-                                </span>
-                            </div>
+                            <SectionHeader 
+                              icon={<Sparkles size={14} />} 
+                              label="Flight Options" 
+                              colorClass="bg-blue-100 text-blue-600" 
+                            />
                             
                             {data.flights_section.info && (
                                 <div className="bg-blue-50 text-blue-900 text-xs px-4 py-3 rounded-xl mb-4 border border-blue-100 flex items-start gap-2">
                                     <span className="text-lg">✈️</span>
-                                    <span className="mt-0.5">{data.flights_section.info}</span>
+                                    <span className="mt-0.5 font-medium">{data.flights_section.info}</span>
                                 </div>
                             )}
 
@@ -135,19 +182,16 @@ const MessageBubble = ({ role, content, onOptionSelect }) => {
                     {/* C. TRAIN SECTION */}
                     {data.trains_section && (
                         <div className="animate-fade-in delay-200 pt-4 border-t border-slate-100/50 mt-2">
-                             <div className="flex items-center gap-2 mb-3 ml-1">
-                                <div className="bg-orange-100 p-1.5 rounded-lg text-orange-600">
-                                    <Sparkles size={14} />
-                                </div>
-                                <span className="text-xs font-bold uppercase tracking-widest text-slate-500">
-                                    Train Options
-                                </span>
-                            </div>
+                             <SectionHeader 
+                              icon={<Sparkles size={14} />} 
+                              label="Train Options" 
+                              colorClass="bg-orange-100 text-orange-600" 
+                            />
 
                             {data.trains_section.info && (
                                 <div className="bg-orange-50 text-orange-900 text-xs px-4 py-3 rounded-xl mb-4 border border-orange-100 flex items-start gap-2">
                                     <span className="text-lg">🚆</span>
-                                    <span className="mt-0.5">{data.trains_section.info}</span>
+                                    <span className="mt-0.5 font-medium">{data.trains_section.info}</span>
                                 </div>
                             )}
 
@@ -166,17 +210,14 @@ const MessageBubble = ({ role, content, onOptionSelect }) => {
                         </div>
                     )}
 
-                    {/* D. HOTEL SECTION (Added for consistency) */}
+                    {/* D. HOTEL SECTION */}
                     {data.hotels_section && (
                         <div className="animate-fade-in delay-300 pt-4 border-t border-slate-100/50 mt-2">
-                             <div className="flex items-center gap-2 mb-3 ml-1">
-                                <div className="bg-emerald-100 p-1.5 rounded-lg text-emerald-600">
-                                    <Building2 size={14} />
-                                </div>
-                                <span className="text-xs font-bold uppercase tracking-widest text-slate-500">
-                                    Recommended Stays
-                                </span>
-                            </div>
+                             <SectionHeader 
+                              icon={<Building2 size={14} />} 
+                              label="Recommended Stays" 
+                              colorClass="bg-emerald-100 text-emerald-600" 
+                            />
 
                             {Array.isArray(data.hotels_section.data) && (
                                 <div className="grid gap-4">
@@ -203,7 +244,7 @@ const MessageBubble = ({ role, content, onOptionSelect }) => {
                       const isSelected = selectedId === id;
                       if (item.type === 'flight') return <FlightCard key={idx} flight={item} onSelect={handleSelection} isSelected={isSelected} />;
                       if (item.type === 'train') return <TrainCard key={idx} train={item} onSelect={handleSelection} isSelected={isSelected} />;
-                      if (item.type === 'hotel') return <HotelCard key={idx} data={item} onSelect={handleSelection} isSelected={isSelected} />;
+                      if (item.type === 'hotel' || item.room_type) return <HotelCard key={idx} data={item} onSelect={handleSelection} isSelected={isSelected} />;
                       return null;
                   })}
                </div>

@@ -2,17 +2,21 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Send, Sparkles, Plane, Compass, MapPin, Calendar, Users, RotateCcw } from 'lucide-react';
 import MessageBubble from './components/MessageBubble';
 import TripSearchBar from "./components/TripSearchBar";
-import { sendMessage, getTripState, streamMessage } from './api'; // ✅ Import streamMessage
+import { sendMessage, getTripState, streamMessage } from './api';
 
-// HIGH QUALITY IMAGE
+// HIGH QUALITY HERO IMAGE
 const HERO_IMAGE = "https://images.unsplash.com/photo-1596394516093-501ba68a0ba6?q=80&w=2070&auto=format&fit=crop";
 
 function App() {
   const [messages, setMessages] = useState(() => {
-    const savedMessages = localStorage.getItem("chat_history");
-    return savedMessages 
-      ? JSON.parse(savedMessages) 
-      : [{ role: 'ai', content: "Hi! I'm **TravelGenie**. Where is your next adventure?" }];
+    try {
+      const savedMessages = localStorage.getItem("chat_history");
+      return savedMessages 
+        ? JSON.parse(savedMessages) 
+        : [{ role: 'ai', content: "Hi! I'm **TravelGenie**. Where is your next adventure?" }];
+    } catch (e) {
+      return [{ role: 'ai', content: "Hi! I'm **TravelGenie**. Where is your next adventure?" }];
+    }
   });
 
   const [input, setInput] = useState("");
@@ -22,11 +26,12 @@ function App() {
   
   const messagesEndRef = useRef(null);
 
+  // Persistence
   useEffect(() => {
     localStorage.setItem("chat_history", JSON.stringify(messages));
   }, [messages]);
 
-  // Scroll to bottom when messages or loading state changes
+  // Auto-scroll
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -34,12 +39,14 @@ function App() {
     return () => clearTimeout(timeoutId);
   }, [messages, loading]); 
 
-  // Polling for Trip Details (Destination, Date, etc.)
+  // Polling for Backend Trip Details
   useEffect(() => {
     if(!started) return;
     const interval = setInterval(async () => {
       const state = await getTripState();
-      if (state?.trip_details) setTripDetails(state.trip_details);
+      if (state?.trip_details) {
+        setTripDetails(prev => ({ ...prev, ...state.trip_details }));
+      }
     }, 5000);
     return () => clearInterval(interval);
   }, [started]);
@@ -54,53 +61,41 @@ function App() {
     setInput("");
   };
 
-  // 🚨 FIXED: Streaming Logic for Trip Start
+  // --- 🚨 PHASE 1: SEARCH & STREAMING ---
   const handleTripStart = async (formData) => {
     localStorage.removeItem("chat_history"); 
     setStarted(true);
     setLoading(true);
     
-    // 1. Initial User Message
     setMessages([{ 
         role: "user", 
         content: `Planning a trip from **${formData.source}** to **${formData.destination}**.` 
     }]);
 
-    // 2. Add Placeholder "Thinking..." Message
     setMessages(prev => [...prev, { role: "ai", content: "Thinking..." }]);
 
-    // 3. Buffer to accumulate incoming stream data
     let currentData = { greeting: "", flights_section: null, trains_section: null };
 
-    // 4. Start Stream
     await streamMessage("Please plan my trip.", formData, (chunk) => {
-        
-        // Handle Greeting
         if (chunk.type === "greeting") {
             currentData.greeting = chunk.content;
-        } 
-        // Handle Flights
-        else if (chunk.type === "flights") {
+        } else if (chunk.type === "flights") {
           currentData.flights_section = {
             info: chunk.info || "Flight options for your journey",
             data: chunk.data
           };
-        }
-        // Handle Trains
-        else if (chunk.type === "trains") {
+        } else if (chunk.type === "trains") {
           currentData.trains_section = {
             info: chunk.info || "Train options for your journey",
             data: chunk.data
           };
         }
 
-        // 5. Update the LAST message in state with the new JSON structure
         setMessages(prev => {
             const newMsgs = [...prev];
             if (newMsgs.length > 0) {
                 newMsgs[newMsgs.length - 1] = { 
                     role: "ai", 
-                    // MessageBubble.jsx will parse this JSON string
                     content: JSON.stringify(currentData) 
                 };
             }
@@ -111,9 +106,9 @@ function App() {
     setLoading(false);
   };
 
-  // Standard Send (Non-Streaming)
+  // --- 💬 STANDARD SEND ---
   const handleSend = async () => {
-    if (!input.trim()) return;
+    if (!input.trim() || loading) return;
     const userMsg = { role: 'user', content: input };
     setMessages(prev => [...prev, userMsg]);
     setInput("");
@@ -123,23 +118,57 @@ function App() {
     setLoading(false);
   };
 
+  // --- 🎯 PHASE 2 & 3: OPTION SELECTION (Transport & Hotels) ---
   const handleOptionSelect = async (selectedOption) => {
     let userChoiceText = "";
     let displayText = "";
+    let payloadData = null; 
 
+    // A. Transport Selection
     if (selectedOption.airline) {
         userChoiceText = `Select option: Flight ${selectedOption.number} (${selectedOption.airline})`;
-        displayText = `✅ Selected: ${selectedOption.airline} Flight ${selectedOption.number}`;
+        displayText = `✅ Selected Flight: ${selectedOption.airline} ${selectedOption.number}`;
     } else if (selectedOption.selected_class) {
         userChoiceText = `Select option: Train ${selectedOption.number} (${selectedOption.name}) in class ${selectedOption.selected_class.name}`;
-        displayText = `✅ Selected: ${selectedOption.name} (${selectedOption.selected_class.name})`;
-    } else return;
+        displayText = `✅ Selected Train: ${selectedOption.name} (${selectedOption.selected_class.name})`;
+    } 
+    // B. Hotel Selection (Triggers Itinerary)
+    else if (selectedOption.room_type || selectedOption.price) {
+        // Use a very clear instruction with destination context to prevent backend 'undefined' errors
+        userChoiceText = `I have selected ${selectedOption.name} in ${tripDetails?.destination}. Please finalize my stay and generate my personalized local guide itinerary for this trip.`;
+        displayText = `✅ Selected Stay: ${selectedOption.name}`;
+        
+        // Pass complete context back to the backend AgentState
+        payloadData = { 
+            selected_hotel: selectedOption,
+            destination: tripDetails?.destination, 
+            source: tripDetails?.source,
+            start_date: tripDetails?.start_date,
+            end_date: tripDetails?.end_date
+        };
+
+        // IMMEDIATE UPDATE for the sidebar
+        setTripDetails(prev => ({ 
+            ...prev, 
+            selected_hotel: selectedOption 
+        }));
+    } else {
+        return;
+    }
 
     setMessages(prev => [...prev, { role: 'user', content: displayText }]);
     setLoading(true);
-    const data = await sendMessage(userChoiceText);
-    setMessages(prev => [...prev, { role: 'ai', content: data.response }]);
-    setLoading(false);
+
+    try {
+        // Send the message and the payload to ensure the backend saves the hotel/context
+        const data = await sendMessage(userChoiceText, payloadData);
+        setMessages(prev => [...prev, { role: 'ai', content: data.response }]);
+    } catch (error) {
+        console.error("Selection Error:", error);
+        setMessages(prev => [...prev, { role: 'ai', content: "I had trouble generating your itinerary. Could you try again?" }]);
+    } finally {
+        setLoading(false);
+    }
   };
 
   return (
@@ -162,8 +191,7 @@ function App() {
               onClick={handleReset}
               className="flex items-center gap-2 bg-white/10 hover:bg-white/20 backdrop-blur-md text-white px-4 py-2 rounded-xl border border-white/20 transition-all text-sm font-bold shadow-sm active:scale-95 cursor-pointer"
             >
-              <RotateCcw size={16} />
-              New Trip
+              <RotateCcw size={16} /> New Trip
             </button>
           )}
       </nav>
@@ -190,35 +218,41 @@ function App() {
       {started && (
         <div className="relative z-20 flex flex-1 h-full pt-20 pb-4 px-4 md:px-8 gap-6 animate-fade-in">
           <aside className="hidden md:flex w-80 flex-col gap-4">
-             <div className="bg-white/10 backdrop-blur-xl border border-white/20 p-6 rounded-3xl shadow-2xl text-white">
+              <div className="bg-white/10 backdrop-blur-xl border border-white/20 p-6 rounded-3xl shadow-2xl text-white">
                 <div className="flex items-center gap-3 mb-6">
                     <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center shadow-lg">
                         <MapPin size={20} />
                     </div>
                     <div>
                         <p className="text-xs font-bold text-blue-200 uppercase tracking-wider">Trip To</p>
-                        <h2 className="text-2xl font-black leading-none">{tripDetails?.destination || "Loading..."}</h2>
+                        <h2 className="text-2xl font-black leading-none truncate w-48">
+                          {tripDetails?.destination || "Discovering..."}
+                        </h2>
                     </div>
                 </div>
 
                 <div className="space-y-3">
                     <div className="flex items-center gap-3 bg-white/5 p-3 rounded-xl border border-white/10">
                         <Calendar size={16} className="text-blue-200"/>
-                        <div className="text-sm font-medium">{tripDetails?.start_date || "--"}</div>
+                        <div className="text-sm font-medium">{tripDetails?.start_date || "Planning..."}</div>
                     </div>
                     <div className="flex items-center gap-3 bg-white/5 p-3 rounded-xl border border-white/10">
                          <Users size={16} className="text-blue-200"/>
                         <div className="text-sm font-medium">{tripDetails?.travellers || 1} Travelers</div>
                     </div>
+                    {tripDetails?.selected_hotel && (
+                      <div className="flex items-center gap-3 bg-emerald-500/20 p-3 rounded-xl border border-emerald-500/30 animate-fade-in">
+                        <MapPin size={16} className="text-emerald-300"/>
+                        <div className="text-[10px] font-black truncate uppercase tracking-tighter">
+                          {tripDetails.selected_hotel.name}
+                        </div>
+                      </div>
+                    )}
                 </div>
-             </div>
+              </div>
           </aside>
 
           <main className="flex-1 bg-white/80 backdrop-blur-xl border border-white/40 rounded-[2rem] shadow-2xl flex flex-col overflow-hidden relative">
-            <div className="md:hidden p-4 border-b border-slate-200/50 bg-white/50 backdrop-blur-md flex justify-between items-center">
-                <span className="font-bold text-slate-800">{tripDetails?.destination || "Trip Planner"}</span>
-            </div>
-            
             <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 scrollbar-hide">
               {messages.map((msg, idx) => (
                 <MessageBubble 
@@ -231,7 +265,7 @@ function App() {
               {loading && (
                  <div className="flex items-center gap-2 text-slate-500 text-sm ml-14 animate-pulse">
                     <Compass size={18} className="animate-spin text-blue-600" /> 
-                    <span className="font-medium">AI is planning...</span>
+                    <span className="font-medium">AI is mapping your journey...</span>
                  </div>
               )}
               <div ref={messagesEndRef} />
@@ -241,13 +275,17 @@ function App() {
                <div className="max-w-4xl mx-auto flex items-center gap-2 bg-white p-2 rounded-2xl shadow-sm border border-slate-200 focus-within:border-blue-400 focus-within:ring-4 focus-within:ring-blue-50 transition-all">
                  <input
                    className="flex-1 bg-transparent px-4 py-2 outline-none text-slate-700 font-medium placeholder-slate-400"
-                   placeholder="Type your message..."
+                   placeholder="Ask about your trip, modify dates, or confirm..."
                    value={input}
                    onChange={e => setInput(e.target.value)}
                    onKeyDown={e => e.key === "Enter" && handleSend()}
                    disabled={loading}
                  />
-                 <button onClick={handleSend} className="w-10 h-10 bg-blue-600 text-white rounded-xl hover:bg-blue-700 flex items-center justify-center transition-transform active:scale-95 shadow-lg">
+                 <button 
+                   onClick={handleSend} 
+                   disabled={loading}
+                   className="w-10 h-10 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:bg-slate-300 flex items-center justify-center transition-transform active:scale-95 shadow-lg"
+                 >
                     <Send size={18} />
                  </button>
                </div>

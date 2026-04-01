@@ -18,13 +18,23 @@ gemini_llm = ChatGoogleGenerativeAI(
     temperature=0.4
 )
 
-greeting_llm = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash-lite",
-    temperature=0.4
+greeting_llm = ChatOpenAI(
+    model="gpt-4o-mini",
+    temperature=0.5
 )
+
+# greeting_llm = ChatGoogleGenerativeAI(
+#     model="gemini-2.5-flash-lite",
+#     temperature=0.4
+# )
 
 # --- Data Cleaner ---
 data_cleaner_llm = ChatGoogleGenerativeAI(
     model="gemini-flash-latest",
     temperature=0
+)
+
+gptIt_llm = ChatOpenAI(
+    model="gpt-4o-mini",
+    temperature=0.5
 )
