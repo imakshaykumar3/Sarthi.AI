@@ -13,7 +13,7 @@ const extractJson = (content) => {
   // 1. Try parsing the WHOLE string as JSON first
   try {
     const parsed = JSON.parse(content);
-    if (parsed.greeting || parsed.flights_section || parsed.trains_section || parsed.hotels_section || Array.isArray(parsed)) {
+    if (parsed.greeting || parsed.flights_section || parsed.trains_section || parsed.hotels_section || parsed.rentals_section || Array.isArray(parsed)) {
        return { text: "", data: parsed };
     }
   } catch (e) {
@@ -65,7 +65,7 @@ const MessageBubble = ({ role, content, onOptionSelect }) => {
 
   // Helper to handle selection click
   const handleSelection = (item) => {
-      // Use number for flights/trains, or name/id for hotels
+      // Use number for flights/trains, or name/id for hotels/rentals
       const id = item.number || item.id || item.name; 
       setSelectedId(id);
       if (onOptionSelect) onOptionSelect(item);
@@ -231,6 +231,34 @@ const MessageBubble = ({ role, content, onOptionSelect }) => {
                                     ))}
                                 </div>
                             )}
+                        </div>
+                    )}
+
+                    {/* E. RENTALS SECTION */}
+                    {data.rentals_section && (
+                        <div className="animate-fade-in delay-300 pt-4 border-t border-slate-100/50 mt-2">
+                             <SectionHeader 
+                              icon={<Compass size={14} />} 
+                              label="Local Rentals" 
+                              colorClass="bg-purple-100 text-purple-600" 
+                            />
+                            <div className="grid gap-4">
+                                {data.rentals_section.data.map((rental, idx) => (
+                                    <div 
+                                        key={idx} 
+                                        onClick={() => handleSelection(rental)} 
+                                        className={`p-4 border rounded-xl cursor-pointer transition-all ${
+                                            selectedId === rental.id || selectedId === rental.name
+                                                ? "bg-purple-50 border-purple-500 shadow-md transform scale-[1.01]"
+                                                : "bg-white hover:shadow-md hover:border-purple-300"
+                                        }`}
+                                    >
+                                        <h4 className="font-bold text-slate-800">{rental.name}</h4>
+                                        <p className="text-sm text-slate-500 font-medium">{rental.type} • <span className="font-bold text-slate-700">₹{rental.price}</span>/day</p>
+                                        <p className="text-xs text-slate-400 mt-1">Provided by: {rental.provider}</p>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     )}
                 </div>

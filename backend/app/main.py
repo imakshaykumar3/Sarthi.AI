@@ -86,9 +86,11 @@ async def chat_endpoint(user_input: UserMessage):
         "session_id": session_id 
     }
 
+    # 🔥 FIX: We only update the trip details here. 
+    # DO NOT set inputs["current_phase"] = "ready_to_search" 
+    # Otherwise it overwrites the state machine and loops back to flights!
     if trip_data:
         inputs["trip_details"] = trip_data
-        inputs["current_phase"] = "ready_to_search"
 
     try:
         final_state = await agent_with_memory.ainvoke(inputs, config=config)
@@ -96,7 +98,7 @@ async def chat_endpoint(user_input: UserMessage):
         print(f"Error: {e}") 
         raise HTTPException(status_code=500, detail=str(e))
 
-    messages = final_state["messages"]
+    messages = final_state.get("messages", [])
     ai_response = messages[-1].content if messages else "I encountered an error processing that."
     
     return {

@@ -11,7 +11,9 @@ from app.agent.nodes.itinerary import itinerary_node
 from app.agent.nodes.search import (
     flight_search_node,
     train_search_node,
-    hotel_search_node
+    hotel_search_node,
+    rental_search_node,
+    return_transport_search_node
 )
 
 # Initialize Graph
@@ -27,6 +29,8 @@ workflow.add_node("hotel_search", hotel_search_node)
 workflow.add_node("itinerary_gen", itinerary_node)
 workflow.add_node("responder", response_node)
 workflow.add_node("saver", save_itinerary_node)
+workflow.add_node("rental_search", rental_search_node)                 
+workflow.add_node("return_transport", return_transport_search_node)    
 
 # --- 2. Define Entry & Fixed Edges ---
 # The entry point is always the extractor to capture user intent from the latest message.
@@ -49,9 +53,15 @@ def route_planner(state: AgentState):
     if phase == "search_hotels":
         return "hotel_search"
     
-    # This phase is triggered when a user selects a hotel
     if phase == "itinerary":
         return "itinerary_gen"
+
+    # --- NEW ROUTING LOGIC ---
+    if phase == "search_rentals":
+        return "rental_search"
+        
+    if phase == "search_return_transport":
+        return "return_transport"
     
     # Fallback for gathering_info, confirm_transport, and presenting_hotels
     return "responder" 
@@ -77,7 +87,11 @@ workflow.add_edge("hotel_search", "responder")
 workflow.add_edge("itinerary_gen", "saver") 
 workflow.add_edge("saver", END)
 
-# D. Standard Responder Edge
+# D. Local Travel & Return Transport Pipeline (The Encore)
+# Both of these must stop at END so the frontend can render the choices for the user
+workflow.add_edge("rental_search", END) 
+workflow.add_edge("return_transport", END)
+
+# E. Standard Responder Edge
 # Ensures confirmation messages and "gathering info" questions reach the user.
 workflow.add_edge("responder", END)
-

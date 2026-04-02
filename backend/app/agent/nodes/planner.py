@@ -10,7 +10,7 @@ router_llm = gpt_llm.with_structured_output(UserIntent)
 def planner_node(state: AgentState):
     """
     The Brain of the Agent: Determines the next phase based on user intent 
-    and current state. Includes Hard Overrides for UI-based selections.
+    and current state. Includes Phase-Aware Hard Overrides for UI-based selections.
     """
     phase = state.get("current_phase", "gathering_info")
     messages = state.get("messages", [])
@@ -19,17 +19,21 @@ def planner_node(state: AgentState):
     
     print(f"🧠 PLANNER (INTENT): Phase='{phase}' | User='{last_msg}'")
 
-    # --- 1. PRIORITY HARD OVERRIDES (Bypass LLM for UI Buttons) ---
-    # This prevents the LLM from misinterpreting a structured selection string.
-    
-    # Check for Hotel Selection -> Itinerary
-    selection_keywords = ["selected stay", "finalize my stay", "selected:", "itinerary"]
-    if any(k in last_msg.lower() for k in selection_keywords):
+    # --- 1. PRIORITY HARD OVERRIDES (Phase-Aware) ---
+    msg_lower = last_msg.lower()
+
+    # Override: Rental Selection -> Return Transport
+    if phase == "presenting_rentals" and ("select" in msg_lower or "rental" in msg_lower):
+        print("🚀 Transitioning to RETURN_TRANSPORT (Hard Override)")
+        return {"current_phase": "search_return_transport"}
+
+    # Override: Hotel Selection -> Itinerary
+    if phase == "presenting_hotels" and ("select" in msg_lower or "stay" in msg_lower or "itinerary" in msg_lower):
         print("🚀 Transitioning to ITINERARY phase (Hard Override)")
         return {"current_phase": "itinerary"}
     
-    # Check for Transport Selection
-    if "Select option:" in last_msg and phase == "presenting_options":
+    # Override: Transport Selection -> Confirm
+    if phase == "presenting_options" and "select" in msg_lower:
         print("🚀 Transitioning to CONFIRM_TRANSPORT (Hard Override)")
         return {"current_phase": "confirm_transport"}
 
@@ -66,28 +70,32 @@ def planner_node(state: AgentState):
         print("🔄 User requested modification. Resetting to search.")
         return {"current_phase": "ready_to_search"}
 
-    # Phase: GATHERING -> SEARCH
     if phase == "gathering_info":
         if (details.get("source") and details.get("destination") and details.get("start_date")):
-            # If we have the big three, and user isn't just asking a question, search!
             if intent != "ask_question":
                 return {"current_phase": "ready_to_search"}
 
-    # Phase: TRANSPORT OPTIONS -> CONFIRMATION
-    if phase == "presenting_options":
-        if intent == "select_option": 
-            return {"current_phase": "confirm_transport"}
+    if phase == "presenting_options" and intent == "select_option": 
+        return {"current_phase": "confirm_transport"}
 
-    # Phase: CONFIRM TRANSPORT -> SEARCH HOTELS
-    if phase == "confirm_transport":
-        if intent == "confirm_proceed" or "hotel" in last_msg.lower():
-            return {"current_phase": "search_hotels"}
+    if phase == "confirm_transport" and (intent == "confirm_proceed" or "hotel" in msg_lower):
+        return {"current_phase": "search_hotels"}
 
-    # Phase: HOTEL OPTIONS -> FINAL ITINERARY
-    if phase == "presenting_hotels":
-        if intent == "select_option" or "selected" in last_msg.lower():
-            print("🚀 Moving to Final Itinerary Generation")
-            return {"current_phase": "itinerary"}
+    if phase == "presenting_hotels" and (intent == "select_option" or "selected" in msg_lower):
+        print("🚀 Moving to Final Itinerary Generation")
+        return {"current_phase": "itinerary"}
 
-    # DEFAULT FALLBACK: Stay in current phase to avoid loops
+    if phase == "asking_rentals":
+        if "yes" in msg_lower or "car" in msg_lower or "bike" in msg_lower or "sure" in msg_lower:
+            print("🚀 Moving to Rental Search")
+            return {"current_phase": "search_rentals"}
+        elif "no" in msg_lower or "skip" in msg_lower:
+            print("🚀 Skipping Rentals, Moving to Return Transport")
+            return {"current_phase": "search_return_transport"}
+
+    if phase == "presenting_rentals" and (intent == "select_option" or "selected" in msg_lower or "continue" in msg_lower):
+        print("🚀 Moving to Return Transport")
+        return {"current_phase": "search_return_transport"}
+
+    # DEFAULT FALLBACK
     return {"current_phase": phase}

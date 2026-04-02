@@ -1,8 +1,9 @@
+import re
+from datetime import datetime
+from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
 from app.core.llms import gptIt_llm  # Ensure this matches your logic model in core/llms.py
 from app.schemas.state import AgentState
-from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
 from app.utils import safe_dict
-from datetime import datetime
 
 async def itinerary_node(state: AgentState):
     """
@@ -75,16 +76,21 @@ async def itinerary_node(state: AgentState):
         if content.startswith("```"):
             content = re.sub(r"```(markdown|json)?", "", content).strip("`").strip()
 
-        # 7. Update state and return
+        # 7. Update state and return WITH Rental Question Trigger
+        # Using an f-string for cleaner formatting
+        rental_prompt = f"\n\n---\n### 🚗 Local Travel\nYour adventure is mapped out! Would you like me to find some rental cars or bikes for your local travel in {dest}?"
+        
         return {
-            "messages": [AIMessage(content=content)], 
-            "current_phase": "completed",
+            "messages": [AIMessage(content=content + rental_prompt)], 
+            "current_phase": "asking_rentals", # 👈 NEW PHASE TRIGGER
             "final_itinerary": {"plan": content} 
         }
         
     except Exception as e:
         print(f"❌ Itinerary Generation Error: {e}")
         error_fallback = f"### 🗓️ Day 1: Welcome to {dest}\nI encountered an error generating your full {total_days}-day plan. Please try selecting your stay again or ask for a specific day."
+        
+        # Kept the phase as 'completed' here so it doesn't ask for rentals if the itinerary failed
         return {
             "messages": [AIMessage(content=error_fallback)],
             "current_phase": "completed",

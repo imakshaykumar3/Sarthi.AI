@@ -118,7 +118,7 @@ function App() {
     setLoading(false);
   };
 
-  // --- 🎯 PHASE 2 & 3: OPTION SELECTION (Transport & Hotels) ---
+  // --- 🎯 PHASE 2 & 3: OPTION SELECTION (Transport, Hotels, Rentals) ---
   const handleOptionSelect = async (selectedOption) => {
     let userChoiceText = "";
     let displayText = "";
@@ -128,11 +128,17 @@ function App() {
     if (selectedOption.airline) {
         userChoiceText = `Select option: Flight ${selectedOption.number} (${selectedOption.airline})`;
         displayText = `✅ Selected Flight: ${selectedOption.airline} ${selectedOption.number}`;
-    } else if (selectedOption.selected_class) {
+    } 
+    else if (selectedOption.selected_class) {
         userChoiceText = `Select option: Train ${selectedOption.number} (${selectedOption.name}) in class ${selectedOption.selected_class.name}`;
         displayText = `✅ Selected Train: ${selectedOption.name} (${selectedOption.selected_class.name})`;
     } 
-    // B. Hotel Selection (Triggers Itinerary)
+    // B. RENTAL Selection (🔥 NEW FIX)
+    else if (selectedOption.provider) {
+        userChoiceText = `I have selected the rental: ${selectedOption.name}. Please find my return transport.`;
+        displayText = `✅ Selected Rental: ${selectedOption.name}`;
+    }
+    // C. Hotel Selection (Triggers Itinerary)
     else if (selectedOption.room_type || selectedOption.price) {
         // Use a very clear instruction with destination context to prevent backend 'undefined' errors
         userChoiceText = `I have selected ${selectedOption.name} in ${tripDetails?.destination}. Please finalize my stay and generate my personalized local guide itinerary for this trip.`;
@@ -148,10 +154,7 @@ function App() {
         };
 
         // IMMEDIATE UPDATE for the sidebar
-        setTripDetails(prev => ({ 
-            ...prev, 
-            selected_hotel: selectedOption 
-        }));
+        setTripDetails(prev => ({ ...prev, selected_hotel: selectedOption }));
     } else {
         return;
     }
@@ -165,7 +168,7 @@ function App() {
         setMessages(prev => [...prev, { role: 'ai', content: data.response }]);
     } catch (error) {
         console.error("Selection Error:", error);
-        setMessages(prev => [...prev, { role: 'ai', content: "I had trouble generating your itinerary. Could you try again?" }]);
+        setMessages(prev => [...prev, { role: 'ai', content: "I had trouble with that selection. Could you try again?" }]);
     } finally {
         setLoading(false);
     }
