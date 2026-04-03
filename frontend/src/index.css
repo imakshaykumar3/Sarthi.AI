@@ -2,31 +2,63 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  @apply bg-slate-50 text-slate-900;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-900;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
 }
 
-/* Custom Scrollbar for Chat */
-.scrollbar-hide::-webkit-scrollbar {
+@layer utilities {
+  /* Custom Scrollbar for Chat */
+  .scrollbar-hide::-webkit-scrollbar {
     display: none;
-}
-.scrollbar-hide {
+  }
+  .scrollbar-hide {
     -ms-overflow-style: none;
     scrollbar-width: none;
+  }
 }
 
-/* Smooth input focus transition */
-.input-field {
-  @apply w-full bg-transparent outline-none text-slate-700 font-medium placeholder-slate-400;
-}
+@layer components {
+  /* Smooth input focus transition */
+  .input-field {
+    @apply w-full bg-transparent outline-none text-slate-700 font-medium placeholder-slate-400;
+  }
 
-/* Label styling */
-.input-label {
-  @apply text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block;
-}
+  /* Label styling */
+  .input-label {
+    @apply text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 block;
+  }
 
-/* Glassmorphism utility */
-.glass {
-  @apply bg-white/90 backdrop-blur-lg border border-white/20 shadow-xl;
+  /* Glassmorphism utility */
+  .glass {
+    @apply bg-white/90 backdrop-blur-lg border border-white/20 shadow-xl;
+  }
+
+  /* --- Markdown Table Styling for the Final Bill --- */
+  .prose table {
+    @apply w-full text-left border-collapse mt-4 mb-6 rounded-xl overflow-hidden shadow-sm border border-slate-200;
+  }
+  
+  .prose th {
+    @apply bg-slate-100/80 p-4 font-black text-slate-700 text-sm tracking-wider uppercase border-b-2 border-slate-200;
+  }
+  
+  .prose td {
+    @apply p-4 border-b border-slate-100 text-slate-700 font-medium align-middle;
+  }
+  
+  .prose tr:last-child td {
+    @apply border-b-0;
+  }
+  
+  .prose tr:hover td {
+    @apply bg-blue-50/30 transition-colors;
+  }
+  
+  /* Highlight the Grand Total row if the LLM uses bolding */
+  .prose td strong {
+    @apply text-blue-700 text-lg;
+  }
 }

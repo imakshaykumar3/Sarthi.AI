@@ -1,3 +1,4 @@
+# backend/app/agent/nodes/search.py
 import json
 from langchain_core.messages import AIMessage
 from app.agent.helpers.train_explainer import build_train_context
@@ -150,7 +151,6 @@ async def rental_search_node(state: AgentState):
     
     return {
         "messages": [AIMessage(content=json.dumps(mock_rentals))],
-        # Fix: Tell the planner we are currently showing rentals
         "current_phase": "presenting_rentals" 
     }
 
@@ -214,10 +214,10 @@ async def return_transport_search_node(state: AgentState):
     if not flights_data and not trains_data:
          return {
             "messages": [AIMessage(content=f"I couldn't fetch return transport from {source} right now. Let me know if you want to try again!")],
-            "current_phase": "completed"
+            "current_phase": "presenting_return_transport" 
         }
 
     return {
         "messages": [AIMessage(content=json.dumps(payload))],
-        "current_phase": "completed"
+        "current_phase": "presenting_return_transport" 
     }

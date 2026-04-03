@@ -124,27 +124,26 @@ function App() {
     let displayText = "";
     let payloadData = null; 
 
-    // A. Transport Selection
+    // A. Transport Selection (Forward OR Return)
     if (selectedOption.airline) {
-        userChoiceText = `Select option: Flight ${selectedOption.number} (${selectedOption.airline})`;
+        // 👇 ADDED SYSTEM TAG and explicitly included the price for the Bill Generator LLM
+        userChoiceText = `[SYSTEM: SELECT_TRANSPORT] Flight ${selectedOption.number} for ₹${selectedOption.price}`;
         displayText = `✅ Selected Flight: ${selectedOption.airline} ${selectedOption.number}`;
     } 
     else if (selectedOption.selected_class) {
-        userChoiceText = `Select option: Train ${selectedOption.number} (${selectedOption.name}) in class ${selectedOption.selected_class.name}`;
-        displayText = `✅ Selected Train: ${selectedOption.name} (${selectedOption.selected_class.name})`;
+        userChoiceText = `[SYSTEM: SELECT_TRANSPORT] Train ${selectedOption.number} Class ${selectedOption.selected_class.name} for ₹${selectedOption.selected_class.price}`;
+        displayText = `✅ Selected Train: ${selectedOption.name}`;
     } 
-    // B. RENTAL Selection (🔥 NEW FIX)
+    // B. RENTAL Selection
     else if (selectedOption.provider) {
-        userChoiceText = `I have selected the rental: ${selectedOption.name}. Please find my return transport.`;
+        userChoiceText = `[SYSTEM: SELECT_RENTAL] ${selectedOption.name} for ₹${selectedOption.price}/day. Find return transport.`;
         displayText = `✅ Selected Rental: ${selectedOption.name}`;
     }
-    // C. Hotel Selection (Triggers Itinerary)
+    // C. Hotel Selection
     else if (selectedOption.room_type || selectedOption.price) {
-        // Use a very clear instruction with destination context to prevent backend 'undefined' errors
-        userChoiceText = `I have selected ${selectedOption.name} in ${tripDetails?.destination}. Please finalize my stay and generate my personalized local guide itinerary for this trip.`;
+        userChoiceText = `[SYSTEM: SELECT_STAY] ${selectedOption.name} in ${tripDetails?.destination} for ₹${selectedOption.price}/night. Generate itinerary.`;
         displayText = `✅ Selected Stay: ${selectedOption.name}`;
         
-        // Pass complete context back to the backend AgentState
         payloadData = { 
             selected_hotel: selectedOption,
             destination: tripDetails?.destination, 
@@ -152,8 +151,6 @@ function App() {
             start_date: tripDetails?.start_date,
             end_date: tripDetails?.end_date
         };
-
-        // IMMEDIATE UPDATE for the sidebar
         setTripDetails(prev => ({ ...prev, selected_hotel: selectedOption }));
     } else {
         return;

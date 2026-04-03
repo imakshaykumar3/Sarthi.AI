@@ -27,13 +27,8 @@ const extractJson = (content) => {
     try {
       const introText = jsonMatch[1].trim(); 
       const cleanJson = jsonMatch[2].trim(); 
-      
-      return { 
-        text: introText, 
-        data: JSON.parse(cleanJson) 
-      };
+      return { text: introText, data: JSON.parse(cleanJson) };
     } catch (e) { 
-      console.error("Block Parse Failed", e);
       return { text: content, data: null };
     }
   }
@@ -65,16 +60,18 @@ const MessageBubble = ({ role, content, onOptionSelect }) => {
 
   // Helper to handle selection click
   const handleSelection = (item) => {
-      // Use number for flights/trains, or name/id for hotels/rentals
       const id = item.number || item.id || item.name; 
       setSelectedId(id);
       if (onOptionSelect) onOptionSelect(item);
   };
 
-  // Logic to identify if this is a premium itinerary message
-  const isItinerary = !isUser && text && (text.includes("Day 1") || text.includes("###"));
+  // 🔥 THE FIX: Stricter Itinerary Check
+  // We ONLY flag as itinerary if it specifically has the Day marker. 
+  // This prevents the Final Bill's markdown table (`|---|---|`) from being split into pieces!
+  const isItinerary = !isUser && text && text.includes("### 🗓️ Day");
 
   // Split itinerary into individual cards based on '---' delimiter
+  // If it's NOT an itinerary (like the Bill), it stays as one solid block so tables render correctly.
   const itineraryDays = isItinerary ? text.split('---').filter(d => d.trim()) : [text];
 
   return (
@@ -122,6 +119,7 @@ const MessageBubble = ({ role, content, onOptionSelect }) => {
                           ? 'prose-invert prose-p:leading-relaxed' 
                           : 'prose-slate prose-headings:text-blue-900 prose-strong:text-blue-700 prose-headings:font-black prose-p:font-medium leading-relaxed'
                       }`}>
+                          {/* remarkGfm is required to render Markdown tables */}
                           <ReactMarkdown remarkPlugins={[remarkGfm]}>{dayContent.trim()}</ReactMarkdown>
                       </div>
 

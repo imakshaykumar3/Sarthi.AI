@@ -1,3 +1,4 @@
+# backend/app/agent/nodes/planner.py
 from langchain_core.messages import SystemMessage, HumanMessage
 from app.core.llms import gpt_llm
 from app.schemas.state import AgentState
@@ -22,18 +23,28 @@ def planner_node(state: AgentState):
     # --- 1. PRIORITY HARD OVERRIDES (Phase-Aware) ---
     msg_lower = last_msg.lower()
 
-    # Override: Rental Selection -> Return Transport
-    if phase == "presenting_rentals" and ("select" in msg_lower or "rental" in msg_lower):
+    # 👇 NEW ROUTE: Email input -> Send Email Node
+    if phase == "asking_email" and "@" in msg_lower:
+        print("🚀 Transitioning to SEND EMAIL (Hard Override)")
+        return {"current_phase": "send_email"}
+
+    # ROUTE: Return Transport Selection -> Bill Generator
+    if phase == "presenting_return_transport" and ("select" in msg_lower or "system: select_transport" in msg_lower):
+        print("🚀 Transitioning to BILL GENERATION (Hard Override)")
+        return {"current_phase": "generate_bill"}
+
+    # ROUTE: Rental Selection -> Return Transport
+    if phase == "presenting_rentals" and ("select" in msg_lower or "rental" in msg_lower or "system: select_rental" in msg_lower):
         print("🚀 Transitioning to RETURN_TRANSPORT (Hard Override)")
         return {"current_phase": "search_return_transport"}
 
-    # Override: Hotel Selection -> Itinerary
-    if phase == "presenting_hotels" and ("select" in msg_lower or "stay" in msg_lower or "itinerary" in msg_lower):
+    # ROUTE: Hotel Selection -> Itinerary
+    if phase == "presenting_hotels" and ("select" in msg_lower or "stay" in msg_lower or "itinerary" in msg_lower or "system: select_stay" in msg_lower):
         print("🚀 Transitioning to ITINERARY phase (Hard Override)")
         return {"current_phase": "itinerary"}
     
-    # Override: Transport Selection -> Confirm
-    if phase == "presenting_options" and "select" in msg_lower:
+    # ROUTE: Initial Transport Selection -> Confirm
+    if phase == "presenting_options" and ("select" in msg_lower or "system: select_transport" in msg_lower):
         print("🚀 Transitioning to CONFIRM_TRANSPORT (Hard Override)")
         return {"current_phase": "confirm_transport"}
 
