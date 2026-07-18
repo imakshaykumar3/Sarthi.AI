@@ -1,134 +1,408 @@
-# app/tools/flights.py
 import os
 import json
+import traceback
+from datetime import datetime
 import re
-from amadeus import Client
-from typing import Optional
+import httpx
+from dotenv import load_dotenv
 from langchain_core.tools import tool
-try:
-    from langchain_tavily import TavilySearchResults
-except ImportError:
-    from langchain_community.tools.tavily_search import TavilySearchResults
 
-from app.core.llms import data_cleaner_llm
+from app.data.airports import get_airport
+from app.tools.currency import get_conversion_rate
 
-# Initialize local instances
-tavily_tool = TavilySearchResults(max_results=3)
+load_dotenv()
 
-amadeus = Client(
-    client_id=os.getenv('AMADEUS_CLIENT_ID'),
-    client_secret=os.getenv('AMADEUS_CLIENT_SECRET')
-)
+DUFFEL_TOKEN = os.getenv("DUFFEL_API_TOKEN")
 
-AIRLINES = {
-    "AI": "Air India", "6E": "IndiGo", "SG": "SpiceJet", "UK": "Vistara",
-    "QP": "Akasa Air", "IX": "Air India Express", "I5": "AirAsia", "G8": "Go First"
+BASE_URL = "https://api.duffel.com"
+
+HEADERS = {
+    "Authorization": f"Bearer {DUFFEL_TOKEN}",
+    "Duffel-Version": "v2",
+    "Accept": "application/json",
+    "Content-Type": "application/json",
 }
 
-# --- Helpers ---
-def get_iata_code(place_name: str) -> Optional[str]:
-    clean_name = place_name.strip().upper()
-    print(f"🔍 Resolving IATA for: {clean_name}...")
+def rank_flights(flights):
+    """
+    Rank flights by:
+    50% Price
+    30% Duration
+    20% Stops
+    """
 
-    try:
-        response = amadeus.reference_data.locations.get(keyword=clean_name, subType="CITY,AIRPORT")
-        if response.data:
-            code = response.data[0]['iataCode']
-            name = response.data[0]['name']
-            print(f"✅ Amadeus Direct Hit: {name} ({code})")
-            return code
-    except Exception:
-        pass 
+    if not flights:
+        return flights
 
-    print(f"🌍 Searching for nearest major airport to {clean_name}...")
-    try:
-        query = f"What is the nearest major commercial airport to {clean_name}? Return 3-letter IATA code."
-        search_result = tavily_tool.invoke(query)
-        
-        prompt = f"""
-        Identify the nearest MAJOR COMMERCIAL AIRPORT IATA code for "{clean_name}".
-        SEARCH RESULTS: {str(search_result)[:1000]}
-        OUTPUT ONLY THE 3-LETTER CODE (e.g. IXB).
-        """
-        response_msg = data_cleaner_llm.invoke(prompt)
-        content = str(response_msg.content).strip().upper()
-        match = re.search(r'\b[A-Z]{3}\b', content)
-        if match:
-            return match.group(0)
-    except Exception as e:
-        print(f"⚠️ Dynamic Resolve Failed: {e}")
-    return None
+    prices = [f["price"] for f in flights]
+    durations = [
+        duration_to_minutes(f["dur"])
+        for f in flights
+    ]
+    stops = [f["stops"] for f in flights]
 
+    min_price = min(prices)
+    max_price = max(prices)
 
-# --- Main Tool ---
-@tool
-def search_flights(source: str, destination: str, date: str):
-    """Fetches REAL-TIME flight data using Amadeus."""
-    try:
-        origin_code = get_iata_code(source)
-        dest_code = get_iata_code(destination)
+    min_duration = min(durations)
+    max_duration = max(durations)
 
-        if not origin_code or not dest_code:
-            return json.dumps({"error": "Airports not found."})
+    min_stop = min(stops)
+    max_stop = max(stops)
 
-        print(f"✈️ Searching Flights: {origin_code} -> {dest_code} on {date}")
+    for flight in flights:
 
-        # Resolve Names
-        origin_airport_resp = amadeus.reference_data.locations.get(keyword=origin_code, subType="AIRPORT")
-        origin_city_code = origin_airport_resp.data[0].get("address", {}).get("cityCode") if origin_airport_resp.data else None
-        from_city_label = origin_airport_resp.data[0].get("address", {}).get("cityName")
-
-        dest_airport_resp = amadeus.reference_data.locations.get(keyword=dest_code, subType="AIRPORT")
-        dest_city_code = dest_airport_resp.data[0].get("address", {}).get("cityCode") if dest_airport_resp.data else None
-        to_city_label = dest_airport_resp.data[0].get("address", {}).get("cityName")
-
-        from_airport_name = origin_airport_resp.data[0].get("name") if origin_airport_resp.data else None
-        to_airport_name = dest_airport_resp.data[0].get("name") if dest_airport_resp.data else None
-
-        # Search
-        response = amadeus.shopping.flight_offers_search.get(
-            originLocationCode=origin_code,
-            destinationLocationCode=dest_code,
-            departureDate=date,
-            adults=1,
-            currencyCode="INR",
-            max=5
+        price_score = (
+            (flight["price"] - min_price)
+            /
+            max(max_price - min_price, 1)
         )
 
-        flights = []
-        if response.data:
-            for offer in response.data:
-                itinerary = offer["itineraries"][0]
-                segment = itinerary["segments"][0]
-                carrier = segment["carrierCode"]
-                
-                duration = itinerary["duration"].replace("PT", "").replace("H", "h ").replace("M", "m").lower()
-                
-                flights.append({
-                    "airline": AIRLINES.get(carrier, carrier),
-                    "number": f"{carrier}-{segment['number']}",
-                    "dep": segment["departure"]["at"].split("T")[1][:5],
-                    "arr": segment["arrival"]["at"].split("T")[1][:5],
-                    "dur": duration,
-                    "price": int(float(offer["price"]["total"])),
-                    "stops": len(itinerary["segments"]) - 1,
-                    "from_airport_name": from_airport_name,
-                    "from_airport_code": origin_code,
-                    "to_airport_name": to_airport_name,
-                    "to_airport_code": dest_code,
-                    "from_city_label": from_city_label,
-                    "to_city_label": to_city_label,
-                    "user_destination": destination.title()
-                })
-            return json.dumps(flights)
+        duration_score = (
+            (
+                duration_to_minutes(flight["dur"])
+                - min_duration
+            )
+            /
+            max(max_duration - min_duration, 1)
+        )
 
-    except Exception as e:
-        print(f"⚠️ Flight Error: {e}")
+        stop_score = (
+            (flight["stops"] - min_stop)
+            /
+            max(max_stop - min_stop, 1)
+        )
 
-    # Fallback
+        flight["score"] = (
+            price_score * 0.50
+            +
+            duration_score * 0.30
+            +
+            stop_score * 0.20
+        )
+
+    return sorted(
+        flights,
+        key=lambda x: x["score"]
+    )
+
+
+def duration_to_minutes(duration: str) -> int:
+    """
+    Convert:
+    '2h 30m'
+    '45m'
+    '5h'
+    into total minutes.
+    """
+
+    if not duration:
+        return 9999
+
+    hours = 0
+    minutes = 0
+
+    h = re.search(r"(\d+)h", duration)
+    m = re.search(r"(\d+)m", duration)
+
+    if h:
+        hours = int(h.group(1))
+
+    if m:
+        minutes = int(m.group(1))
+
+    return hours * 60 + minutes
+
+def safe_get(obj, *keys):
+
+    current = obj
+
+    for key in keys:
+
+        if not isinstance(current, dict):
+            return None
+
+        current = current.get(key)
+
+        if current is None:
+            return None
+
+    return current
+
+
+def extract_time(value):
+
+    if not value:
+        return "--:--"
+
     try:
-        print("🔄 API Failed. Trying Web Search...")
-        res = tavily_tool.invoke(f"flights from {source} to {destination} on {date} price")
-        return f"WEB_SEARCH_RESULTS: {str(res)}"
+
+        return datetime.fromisoformat(
+            value.replace("Z", "")
+        ).strftime("%H:%M")
+
     except Exception:
+
+        return value[11:16]
+
+
+def format_duration(duration):
+
+    if not duration:
+        return "--"
+
+    return (
+        duration
+        .replace("PT", "")
+        .replace("H", "h ")
+        .replace("M", "m")
+        .strip()
+    )
+
+
+def format_price(price):
+
+    try:
+        return int(float(price))
+    except:
+        return 0
+    
+def airport_payload(first_segment, last_segment):
+
+    return {
+
+        "from_airport_name":
+            safe_get(first_segment, "origin", "name"),
+
+        "from_airport_code":
+            safe_get(first_segment, "origin", "iata_code"),
+
+        "from_city_label":
+            safe_get(first_segment, "origin", "city_name"),
+
+        "to_airport_name":
+            safe_get(last_segment, "destination", "name"),
+
+        "to_airport_code":
+            safe_get(last_segment, "destination", "iata_code"),
+
+        "to_city_label":
+            safe_get(last_segment, "destination", "city_name"),
+    }
+
+def airline_payload(segment):
+
+    airline = safe_get(
+        segment,
+        "operating_carrier",
+        "name"
+    )
+
+    logo = safe_get(
+        segment,
+        "operating_carrier",
+        "logo_symbol_url"
+    )
+
+    code = safe_get(
+        segment,
+        "marketing_carrier",
+        "iata_code"
+    )
+
+    number = segment.get(
+        "marketing_carrier_flight_number",
+        ""
+    )
+
+    return {
+
+        "airline":
+            airline or "Unknown Airline",
+
+        "number":
+            f"{code}{number}",
+
+        "logo":
+            logo or ""
+    }
+
+def build_flight_card(offer):
+
+    slices = offer.get("slices") or []
+
+    if not slices:
+        raise Exception("No slices found")
+
+    slice_data = slices[0]
+
+    segments = slice_data.get("segments") or []
+
+    if not segments:
+        raise Exception("No segments found")
+
+    first = segments[0]
+    last = segments[-1]
+
+    flight = {}
+
+    # Airline Information
+    flight.update(
+        airline_payload(first)
+    )
+
+    # Airport Information
+    flight.update(
+        airport_payload(first, last)
+    )
+
+    # Departure & Arrival
+    flight["dep"] = extract_time(
+        first.get("departing_at")
+    )
+
+    flight["arr"] = extract_time(
+        last.get("arriving_at")
+    )
+
+    # Journey Duration
+    flight["dur"] = format_duration(
+        slice_data.get("duration")
+    )
+
+    # ⭐ Raw Duffel Price (USD)
+    try:
+        flight["price"] = float(
+            offer.get("total_amount", 0)
+        )
+    except (ValueError, TypeError):
+        flight["price"] = 0.0
+
+    # Original Currency
+    flight["currency"] = offer.get(
+        "total_currency",
+        "USD"
+    )
+
+    # Stops
+    flight["stops"] = max(
+        len(segments) - 1,
+        0
+    )
+
+    # Duffel Offer ID
+    flight["offer_id"] = offer.get("id")
+
+    return flight
+
+@tool
+def search_flights(
+    source: str,
+    destination: str,
+    departure_date: str,
+):
+    """
+    Search flights using Duffel and convert prices to INR.
+    """
+
+    origin = get_airport(source)
+    dest = get_airport(destination)
+
+    if origin is None:
+        return json.dumps({
+            "error": f"Unknown source city: {source}"
+        })
+
+    if dest is None:
+        return json.dumps({
+            "error": f"Unknown destination city: {destination}"
+        })
+
+    payload = {
+        "data": {
+            "slices": [
+                {
+                    "origin": origin["iata"],
+                    "destination": dest["iata"],
+                    "departure_date": departure_date
+                }
+            ],
+            "passengers": [
+                {
+                    "type": "adult"
+                }
+            ],
+            "cabin_class": "economy"
+        }
+    }
+
+    try:
+
+        response = httpx.post(
+            f"{BASE_URL}/air/offer_requests?return_offers=true",
+            headers=HEADERS,
+            json=payload,
+            timeout=90
+        )
+
+        response.raise_for_status()
+
+        result = response.json()
+
+        data = result.get("data") or {}
+
+        offers = data.get("offers") or []
+
+        print(f"Offers Found: {len(offers)}")
+
+        if not offers:
+            return json.dumps([])
+
+        # Fetch exchange rate ONCE (cached for 1 hour)
+        try:
+            conversion_rate = get_conversion_rate(
+                "USD",
+                "INR"
+            )
+        except Exception as e:
+            print("Currency API Error:", e)
+            conversion_rate = 1.0
+
+        flights = []
+
+        for offer in offers:
+
+            try:
+
+                card = build_flight_card(offer)
+
+                # Duffel returns total_amount as string
+                usd_price = float(card["price"])
+
+                # Convert to INR
+                card["price"] = round(
+                    usd_price * conversion_rate
+                )
+
+                card["currency"] = "INR"
+
+                flights.append(card)
+
+            except Exception:
+                traceback.print_exc()
+                continue
+
+        best_flights = rank_flights(flights)
+
+        return json.dumps(best_flights[:8])
+
+    except httpx.HTTPStatusError as e:
+
+        print("Duffel HTTP Error")
+        print(e.response.text)
+
+        return json.dumps([])
+
+    except Exception:
+        traceback.print_exc()
         return json.dumps([])

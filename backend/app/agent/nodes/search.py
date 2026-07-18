@@ -31,7 +31,7 @@ async def flight_search_node(state: AgentState):
         raw = search_flights.invoke({
             "source": source,
             "destination": destination,
-            "date": date
+            "departure_date": date
         })
 
         flights = json.loads(raw) if raw else []
@@ -176,7 +176,7 @@ async def return_transport_search_node(state: AgentState):
         raw_flights = search_flights.invoke({
             "source": source,
             "destination": destination,
-            "date": date
+            "departure_date": date
         })
         flights_data = json.loads(raw_flights) if raw_flights else []
     except Exception as e:

@@ -2,6 +2,12 @@
 from dotenv import load_dotenv
 load_dotenv()
 
+import warnings
+from langchain_core._api.deprecation import LangChainDeprecationWarning
+
+warnings.filterwarnings("ignore", category=LangChainDeprecationWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
+
 import uvicorn
 import aiosqlite 
 import json
