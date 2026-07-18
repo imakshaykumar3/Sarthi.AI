@@ -30,7 +30,7 @@ def send_dummy_tickets(receiver_email: str, itinerary_md: str, bill_md: str):
         </div>
         <div style="padding: 20px; border: 1px solid #e2e8f0; border-top: none; border-radius: 0 0 10px 10px;">
             <p>Hello Traveler,</p>
-            <p>Here are your dummy tickets and final bill details, curated specially by <b>TravelGenie</b>.</p>
+            <p>Here are your  tickets and final bill details, curated specially by <b>TravelGenie</b>.</p>
             
             <div style="background-color: #f8fafc; padding: 15px; border-radius: 8px; border: 1px solid #e2e8f0; margin-bottom: 20px;">
                 <h3 style="color: #2563eb; margin-top: 0;">🧾 Final Bill</h3>
