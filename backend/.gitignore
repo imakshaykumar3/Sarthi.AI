@@ -1,6 +1,17 @@
 .env
 __pycache__
 .vscode
-.venv
+venv/
 test.py
 checkpoints.*
+backend/venv/
+
+# Python
+backend/venv/
+venv/
+__pycache__/
+*.py[cod]
+.env
+
+# Node
+node_modules/
