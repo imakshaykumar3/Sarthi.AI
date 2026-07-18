@@ -1,3 +1,4 @@
+#backend/app/tool/flights.py
 import os
 import json
 import traceback
@@ -21,6 +22,16 @@ HEADERS = {
     "Duffel-Version": "v2",
     "Accept": "application/json",
     "Content-Type": "application/json",
+}
+
+ALLOWED_AIRLINES = {
+    "Air India",
+    "Air India Express",
+    "IndiGo",
+    "Akasa Air",
+    "SpiceJet",
+    "Alliance Air",
+    "Star Air",
 }
 
 def rank_flights(flights):
@@ -373,6 +384,16 @@ def search_flights(
         for offer in offers:
 
             try:
+
+                airline = (
+                    offer.get("slices", [{}])[0]
+                        .get("segments", [{}])[0]
+                        .get("operating_carrier", {})
+                        .get("name", "")
+                )
+
+                if airline not in ALLOWED_AIRLINES:
+                    continue
 
                 card = build_flight_card(offer)
 

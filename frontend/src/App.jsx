@@ -13,9 +13,9 @@ function App() {
       const savedMessages = localStorage.getItem("chat_history");
       return savedMessages 
         ? JSON.parse(savedMessages) 
-        : [{ role: 'ai', content: "Hi! I'm **SARTHI.AI**. Where is your next adventure?" }];
+        : [{ role: 'ai', content: "Hi! I'm **TravelGenie**. Where is your next adventure?" }];
     } catch (e) {
-      return [{ role: 'ai', content: "Hi! I'm **SARTHI.AI**. Where is your next adventure?" }];
+      return [{ role: 'ai', content: "Hi! I'm **TravelGenie**. Where is your next adventure?" }];
     }
   });
 
@@ -54,7 +54,7 @@ function App() {
   const handleReset = () => {
     localStorage.removeItem("chat_history");
     localStorage.removeItem("session_id");
-    setMessages([{ role: 'ai', content: "Hi! I'm **SARTHI.AI**. Where is your next adventure?" }]);
+    setMessages([{ role: 'ai', content: "Hi! I'm **TravelGenie**. Where is your next adventure?" }]);
     setTripDetails(null);
     setStarted(false);
     setLoading(false);
@@ -183,7 +183,7 @@ function App() {
               <div className="bg-white/10 backdrop-blur-md p-2 rounded-xl border border-white/20">
                 <Plane className="w-6 h-6 text-white" /> 
               </div>
-              SARTHI.AI
+              TravelGenie
           </div>
 
           {started && (
